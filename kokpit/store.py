@@ -107,9 +107,12 @@ class Store:
                 "SELECT name FROM series_dict ORDER BY name"
             ).fetchall()
         else:
+            # escape wildcardów LIKE (_ i %) w prefiksie, by były literalne;
+            # backslash escapujemy jako pierwszy, potem % i _
+            escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             rows = self.conn.execute(
-                "SELECT name FROM series_dict WHERE name LIKE ?||'%' ORDER BY name",
-                (prefix,),
+                "SELECT name FROM series_dict WHERE name LIKE ?||'%' ESCAPE '\\' ORDER BY name",
+                (escaped,),
             ).fetchall()
         return [name for (name,) in rows]
 
