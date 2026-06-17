@@ -133,3 +133,19 @@ def test_follow_advances_x_range(qapp):
     lo, hi = strip._master_vb.viewRange()[0]
     assert hi == pytest.approx(10000.5, abs=1.0)      # view slid so "now" stays at right edge
     assert (hi - lo) == pytest.approx(3600, abs=2.0)
+
+
+def test_panned_away_accumulates_tail_without_sliding(qapp):
+    import pytest
+    from kokpit.ui.history_model import HistoryModel
+    from kokpit.ui.widgets.history_strip import HistoryStrip
+
+    strip = HistoryStrip(HistoryModel(_XRangeFakeStore()), ["cpu.loadavg.1"])
+    strip.set_window(3600, now_ms=10_000_000)         # view framed at [6400, 10000]
+    strip.set_follow(False)                            # user panned into the past
+    strip.on_snapshot({"ts": 10_000_500, "series": {"cpu.loadavg.1": 3.0}})
+    # data still accumulates (no gap on return) ...
+    assert strip._tail["cpu.loadavg.1"][-1] == (10000.5, 3.0)
+    # ... but the view did NOT slide (right edge stays at the framed 'now', not 10000.5)
+    _lo, hi = strip._master_vb.viewRange()[0]
+    assert hi == pytest.approx(10000.0, abs=1.0)

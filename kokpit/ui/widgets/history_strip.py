@@ -75,13 +75,16 @@ class HistoryStrip(QtWidgets.QWidget):
         self._apply_x_range(now_s - window_s, now_s)  # frame the selected window
 
     def on_snapshot(self, snapshot: dict) -> None:
-        if self._mode != "raw" or not self._follow:
-            return  # tryb poll odświeża się przez set_window (timer w app.py); brak doklejania 1 Hz
+        # poll windows refresh via set_window (timer in app.py), not by 1 Hz append
+        if self._mode != "raw":
+            return
         ts = snapshot.get("ts")
         if ts is None:
             return
         t_s = ts / 1000.0
         self._last_ts_s = t_s
+        # always accumulate the tail (even when panned away / follow OFF) so panning back
+        # shows continuous data — dropping snapshots here would leave a gap on return
         for s in self._series:
             v = snapshot.get("series", {}).get(s)
             if v is None:
@@ -92,4 +95,5 @@ class HistoryStrip(QtWidgets.QWidget):
             while tail and tail[0][0] < cutoff:
                 tail.popleft()
             self._curves[s].setData([t for t, _ in tail], [y for _, y in tail])
-        self._apply_x_range(t_s - self._window_s, t_s)  # follow: slide view so "now" stays at right edge
+        if self._follow:  # only slide the view when following; panned-away keeps its range
+            self._apply_x_range(t_s - self._window_s, t_s)
