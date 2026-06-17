@@ -16,7 +16,10 @@ def iter_ndjson(buf: bytes) -> tuple[list[dict], bytes]:
         line, buf = buf[:nl], buf[nl + 1:]
         line = line.strip()
         if line:
-            objs.append(json.loads(line.decode()))
+            try:
+                objs.append(json.loads(line.decode()))
+            except json.JSONDecodeError:
+                continue
 
 
 class LiveClient(QtCore.QObject):
