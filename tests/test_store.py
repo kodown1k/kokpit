@@ -62,3 +62,41 @@ def test_rolled_back_write_does_not_poison_cache(tmp_path):
     s.write(2000, {"flaky.series": 7.0})
     assert s.query("flaky.series", 0, 5000) == [(2000, 7.0)]
     s.close()
+
+
+def test_rollup_1m_aggregates_buckets(tmp_path):
+    s = Store(tmp_path / "k.db")
+    # trzy próbki w tym samym 1-min buckecie (bucket 0): 60000 ms
+    s.write(1000, {"gpu.0.util": 10.0})
+    s.write(2000, {"gpu.0.util": 30.0})
+    s.write(3000, {"gpu.0.util": 20.0})
+    s.rollup_1m(now_ms=120_000)
+    row = s.conn.execute(
+        "SELECT bucket, vmin, vmax, vavg, vlast FROM rollup_1m r "
+        "JOIN series_dict d ON d.id=r.series_id WHERE d.name='gpu.0.util'"
+    ).fetchone()
+    assert row[0] == 0          # bucket = floor(ts/60000)*60000
+    assert row[1] == 10.0       # vmin
+    assert row[2] == 30.0       # vmax
+    assert row[3] == 20.0       # vavg
+    assert row[4] == 20.0       # vlast (value przy max ts = 3000)
+    s.close()
+
+
+def test_prune_drops_old_rows(tmp_path):
+    from kokpit import config
+    s = Store(tmp_path / "k.db")
+    old = 1000
+    fresh = 10 * config.RAW_RETENTION_S * 1000
+    s.write(old, {"x": 1.0})
+    s.write(fresh, {"x": 2.0})
+    s.prune(now_ms=fresh)
+    assert s.query("x", 0, fresh + 1) == [(fresh, 2.0)]
+    s.close()
+
+
+def test_checkpoint_runs(tmp_path):
+    s = Store(tmp_path / "k.db")
+    s.write(1000, {"x": 1.0})
+    s.checkpoint()  # nie rzuca
+    s.close()

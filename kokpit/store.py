@@ -71,5 +71,43 @@ class Store:
         ).fetchall()
         return [(int(ts), float(v)) for ts, v in rows]
 
+    # --- dopisz w klasie Store, pod query() ---
+
+    def rollup_1m(self, now_ms: int) -> None:
+        since = now_ms - 3600_000  # przelicz buckety z ostatniej godziny
+        aggs = self.conn.execute(
+            "SELECT (ts/60000)*60000 AS bucket, series_id, MIN(value), MAX(value), AVG(value) "
+            "FROM sample WHERE ts >= ? GROUP BY bucket, series_id",
+            (since,),
+        ).fetchall()
+        last_rows = self.conn.execute(
+            "SELECT (ts/60000)*60000 AS bucket, series_id, value FROM sample s "
+            "WHERE ts >= ? AND ts = ("
+            "  SELECT MAX(ts) FROM sample s2 WHERE s2.series_id = s.series_id "
+            "  AND (s2.ts/60000)*60000 = (s.ts/60000)*60000)",
+            (since,),
+        ).fetchall()
+        last = {(b, sid): v for b, sid, v in last_rows}
+        rows = [
+            (b, sid, vmin, vmax, vavg, last.get((b, sid), vavg))
+            for b, sid, vmin, vmax, vavg in aggs
+        ]
+        if rows:
+            self.conn.executemany(
+                "INSERT OR REPLACE INTO rollup_1m(bucket, series_id, vmin, vmax, vavg, vlast) "
+                "VALUES (?,?,?,?,?,?)",
+                rows,
+            )
+            self.conn.commit()
+
+    def prune(self, now_ms: int) -> None:
+        from kokpit import config
+        self.conn.execute("DELETE FROM sample WHERE ts < ?", (now_ms - config.RAW_RETENTION_S * 1000,))
+        self.conn.execute("DELETE FROM rollup_1m WHERE bucket < ?", (now_ms - config.ROLLUP_RETENTION_S * 1000,))
+        self.conn.commit()
+
+    def checkpoint(self) -> None:
+        self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
     def close(self) -> None:
         self.conn.close()
