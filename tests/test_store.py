@@ -23,3 +23,30 @@ def test_series_id_is_stable(tmp_path):
     b = s.series_id("net.eth0.rx_bps")
     assert a == b
     s.close()
+
+
+def test_series_id_does_not_commit_without_write(tmp_path):
+    import sqlite3
+    db = tmp_path / "k.db"
+    s = Store(db)
+    s.series_id("orphan")                       # resolve id but never write a sample
+    other = sqlite3.connect(str(db))
+    seen = other.execute("SELECT COUNT(*) FROM series_dict WHERE name='orphan'").fetchone()[0]
+    other.close()
+    assert seen == 0                            # not durably committed -> no orphan rows on crash
+    s.close()
+
+
+def test_write_persists_new_series_atomically(tmp_path):
+    import sqlite3
+    db = tmp_path / "k.db"
+    s = Store(db)
+    s.write(1000, {"new.series": 5.0})
+    other = sqlite3.connect(str(db))
+    rows = other.execute(
+        "SELECT COUNT(*) FROM series_dict d JOIN sample x ON x.series_id=d.id "
+        "WHERE d.name='new.series'"
+    ).fetchone()[0]
+    other.close()
+    assert rows == 1                            # dict + sample committed together
+    s.close()

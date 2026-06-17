@@ -47,18 +47,17 @@ class Store:
             return cached
         self.conn.execute("INSERT OR IGNORE INTO series_dict(name) VALUES (?)", (name,))
         sid = self.conn.execute("SELECT id FROM series_dict WHERE name=?", (name,)).fetchone()[0]
-        self.conn.commit()
-        self._series_cache[name] = sid
+        self._series_cache[name] = sid   # caller's write() owns the transaction — no commit here
         return sid
 
     def write(self, ts_ms: int, samples: dict) -> None:
-        rows = [(ts_ms, self.series_id(name), float(value)) for name, value in samples.items()]
-        if not rows:
+        if not samples:
             return
-        self.conn.executemany(
-            "INSERT OR REPLACE INTO sample(ts, series_id, value) VALUES (?,?,?)", rows
-        )
-        self.conn.commit()
+        with self.conn:  # one transaction per tick: dict inserts + sample inserts commit together
+            rows = [(ts_ms, self.series_id(name), float(value)) for name, value in samples.items()]
+            self.conn.executemany(
+                "INSERT OR REPLACE INTO sample(ts, series_id, value) VALUES (?,?,?)", rows
+            )
 
     def query(self, series: str, since_ms: int, until_ms: int) -> list:
         rows = self.conn.execute(
