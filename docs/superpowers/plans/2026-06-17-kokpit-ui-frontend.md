@@ -440,7 +440,7 @@ class FakeStore:
 
     def list_series(self, prefix=None):
         self.calls.append(("list_series", prefix))
-        return ["net.eth0.rx_bps", "net.eth0.tx_bps", "gpu.0.util"]
+        return ["net.enp0s31f6.rx_bps", "net.enp0s31f6.tx_bps", "gpu.0.util"]
 
 
 def test_window_1h_uses_raw_seconds():
@@ -472,7 +472,7 @@ def test_threshold_boundary_is_raw_at_max():
 def test_available_series_delegates():
     st = FakeStore()
     assert HistoryModel(st).available_series("net.") == [
-        "net.eth0.rx_bps", "net.eth0.tx_bps", "gpu.0.util",
+        "net.enp0s31f6.rx_bps", "net.enp0s31f6.tx_bps", "gpu.0.util",
     ]
     assert st.calls[-1] == ("list_series", "net.")
 ```
@@ -1388,12 +1388,29 @@ git commit -m "feat(ui): HistoryStrip — follow-mode, raw-tail cap, poll for lo
 **Interfaces:**
 - Consumes: `LiveClient`, `HistoryModel`, `kokpit.store.Store`, `kokpit.config.{socket_path,db_path}`, wszystkie widgety, `qss_path`.
 - Produces:
-  - `class MainWindow(QtWidgets.QMainWindow)`: `__init__(live: LiveClient, model: HistoryModel, gpu_indices: list[int])`, slot `_on_snapshot(dict)`, `_on_state(str)`.
-  - `main() -> int` — entry-point (`pyproject [project.scripts] kokpit`).
+  - `class MainWindow(QtWidgets.QMainWindow)`: `__init__(live: LiveClient, model: HistoryModel, gpu_indices: list[int], net_key: str | None = None, disk_key: str | None = None)`, slot `_on_snapshot(dict)`, `_on_state(str)`.
+  - `primary_net_key(names) -> str | None`, `primary_disk_key(names) -> str | None` — wybór głównego iface/dysku z `list_series` (nazwy są dynamiczne — `enp…`/`wlp…`/`nvme0n1`, NIE `eth0`).
+  - `main() -> int` — entry-point (`pyproject [project.scripts] kokpit`); odkrywa net/disk przez `store.list_series("net."/"disk.")`.
 
 - [ ] **Step 1: Napisz failing smoke test (dopisz do `tests/test_widgets_smoke.py`)**
 
 ```python
+def test_primary_net_key_prefers_wired():
+    from kokpit.ui.app import primary_net_key
+    # nazwy dynamiczne (psutil) — NIE 'eth0'; wired (en*) > wifi (wl*)
+    names = ["net.wlp0s20f3.rx_bps", "net.enp110s0.rx_bps", "net.enp110s0.tx_bps"]
+    assert primary_net_key(names) == "net.enp110s0.rx_bps"
+    assert primary_net_key(["net.wlp0s20f3.rx_bps"]) == "net.wlp0s20f3.rx_bps"  # tylko wifi
+    assert primary_net_key([]) is None
+
+
+def test_primary_disk_key_whole_disk_not_partition():
+    from kokpit.ui.app import primary_disk_key
+    names = ["disk.nvme0n1p1.read_bps", "disk.nvme0n1.read_bps", "disk.nvme0n1p2.read_bps"]
+    assert primary_disk_key(names) == "disk.nvme0n1.read_bps"   # cały dysk, nie partycja
+    assert primary_disk_key([]) is None
+
+
 def test_mainwindow_builds_and_updates(qapp):
     from kokpit.ui.app import MainWindow
     from kokpit.ui.history_model import HistoryModel
@@ -1405,15 +1422,20 @@ def test_mainwindow_builds_and_updates(qapp):
         def list_series(self, prefix=None): return []
 
     live = LiveClient("/nonexistent.sock")           # nie startujemy wątku w teście
-    win = MainWindow(live, HistoryModel(FakeStore()), gpu_indices=[0])
+    win = MainWindow(live, HistoryModel(FakeStore()), gpu_indices=[0],
+                     net_key="net.enp0s31f6.rx_bps", disk_key="disk.nvme0n1.read_bps")
     win._on_state("connected")
     win._on_snapshot({
         "ts": 1000,
         "series": {**{f"cpu.thread.{i}.util": 10 for i in range(32)},
-                   "gpu.0.util": 50.0, "mem.used": 1e9, "mem.total": 8e9},
+                   "gpu.0.util": 50.0, "mem.used": 1e9, "mem.total": 8e9,
+                   "net.enp0s31f6.rx_bps": 1000.0, "disk.nvme0n1.read_bps": 2000.0},
         "procs": [{"pid": 1, "name": "x", "cpu": 5.0, "rss": 1048576, "vram": 0.0}],
     })
     win._on_snapshot({"ts": 2000, "series": {}, "procs": []})   # puste — bez crasha
+    # net_key=None nie wywala (brak iface) — defensywnie
+    win2 = MainWindow(live, HistoryModel(FakeStore()), gpu_indices=[0])
+    win2._on_snapshot({"ts": 3000, "series": {}, "procs": []})
 ```
 
 - [ ] **Step 2: Uruchom — failuje**
@@ -1439,14 +1461,37 @@ from kokpit.ui.widgets.history_strip import HistoryStrip
 from kokpit.ui.widgets.proc_table import ProcTable
 from kokpit.ui.widgets.sparkline import Sparkline
 
-_HIST_SERIES = ["cpu.loadavg.1", "gpu.0.util", "mem.used", "net.eth0.rx_bps"]
+_HIST_BASE = ["cpu.loadavg.1", "gpu.0.util", "mem.used"]   # net dołączany po odkryciu iface
+
+
+def primary_net_key(names) -> str | None:
+    # główny interfejs: wired (en*/eth*) > wifi (wl*), potem alfabetycznie.
+    # Nazwy są dynamiczne (psutil): enp110s0 / wlp0s20f3 — NIE 'eth0'.
+    ifaces = sorted({n.split(".")[1] for n in names
+                     if n.startswith("net.") and n.endswith(".rx_bps")})
+    if not ifaces:
+        return None
+    wired = [i for i in ifaces if i.startswith(("en", "eth"))]
+    return f"net.{(wired or ifaces)[0]}.rx_bps"
+
+
+def primary_disk_key(names) -> str | None:
+    # główny dysk: cały dysk, nie partycja (najkrótsza nazwa urządzenia: nvme0n1 < nvme0n1p1)
+    devs = {n.split(".")[1] for n in names
+            if n.startswith("disk.") and n.endswith(".read_bps")}
+    if not devs:
+        return None
+    return f"disk.{min(devs, key=lambda d: (len(d), d))}.read_bps"
 
 
 class MainWindow(QtWidgets.QMainWindow):
-    def __init__(self, live: LiveClient, model: HistoryModel, gpu_indices: list[int]) -> None:
+    def __init__(self, live: LiveClient, model: HistoryModel, gpu_indices: list[int],
+                 net_key: str | None = None, disk_key: str | None = None) -> None:
         super().__init__()
         self.setWindowTitle("kokpit")
         self._live = live
+        self._net_key = net_key
+        self._disk_key = disk_key
         central = QtWidgets.QWidget()
         self.setCentralWidget(central)
         grid = QtWidgets.QGridLayout(central)
@@ -1459,7 +1504,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._net = Sparkline("NET rx", window_s=120)
         self._disk = Sparkline("DISK r", window_s=120)
         self._procs = ProcTable()
-        self._hist = HistoryStrip(model, _HIST_SERIES)
+        hist_series = _HIST_BASE + ([net_key] if net_key else [])
+        self._hist = HistoryStrip(model, hist_series)
         self._status = QtWidgets.QLabel("disconnected")
         self._status.setObjectName("tileTitle")
 
@@ -1490,8 +1536,8 @@ class MainWindow(QtWidgets.QMainWindow):
         mt = s.get("mem.total")
         self._ram.set_value(None if not mt else s.get("mem.used", 0) / mt * 100)
         self._swap.set_value(s.get("swap.used"))
-        self._net.push(s.get("net.eth0.rx_bps"))
-        self._disk.push(s.get("disk.nvme0n1.read_bps"))
+        self._net.push(s.get(self._net_key) if self._net_key else None)
+        self._disk.push(s.get(self._disk_key) if self._disk_key else None)
         self._procs.set_rows(snap.get("procs", []))
         self._hist.on_snapshot(snap)
 
@@ -1510,8 +1556,13 @@ def main() -> int:
         gpu_indices = expected_gpu_indices(store.list_series("gpu."))
     except Exception:
         gpu_indices = [0]
+    try:                                            # nazwy iface/dysku są dynamiczne — odkryj, nie hardcoduj
+        net_key = primary_net_key(store.list_series("net."))
+        disk_key = primary_disk_key(store.list_series("disk."))
+    except Exception:
+        net_key = disk_key = None
     live = LiveClient(str(config.socket_path()))
-    win = MainWindow(live, model, gpu_indices)
+    win = MainWindow(live, model, gpu_indices, net_key=net_key, disk_key=disk_key)
     win.resize(1500, 950)
     win.show()
     live.start()
