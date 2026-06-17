@@ -50,3 +50,15 @@ def test_write_persists_new_series_atomically(tmp_path):
     other.close()
     assert rows == 1                            # dict + sample committed together
     s.close()
+
+
+def test_rolled_back_write_does_not_poison_cache(tmp_path):
+    import pytest
+    s = Store(tmp_path / "k.db")
+    # A write that fails mid-transaction (bad value) for a brand-new series must roll back fully
+    with pytest.raises(ValueError):
+        s.write(1000, {"flaky.series": "not_a_number"})
+    # The cache must not retain the rolled-back series id; a later valid write must be queryable
+    s.write(2000, {"flaky.series": 7.0})
+    assert s.query("flaky.series", 0, 5000) == [(2000, 7.0)]
+    s.close()
