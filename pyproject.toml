@@ -10,6 +10,7 @@ dev = ["pytest>=8.0"]
 
 [project.scripts]
 kokpit-collectord = "kokpit.collectord:main"
+kokpit = "kokpit.ui.app:main"
 
 [build-system]
 requires = ["setuptools>=68"]

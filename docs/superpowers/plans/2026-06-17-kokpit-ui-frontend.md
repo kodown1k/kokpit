@@ -937,11 +937,15 @@ def thread_util_keys(n: int = 32) -> list[str]:
 def sorted_thermal_keys(names) -> list[str]:
     # klucze coretemp: thermal.coretemp.<cid>.core.<n> (cid = chip hwmon —
     # wielo-socket safe; n = nieciągły numer rdzenia). Sortuj po (cid, n).
-    cores = [n for n in names if n.startswith("thermal.coretemp.") and ".core." in n]
-    def _key(name: str) -> tuple[int, int]:
+    def _valid(name: str) -> bool:                       # guard: pomiń malformed klucz
+        if not (name.startswith("thermal.coretemp.") and ".core." in name):
+            return False
         parts = name.split(".")          # ["thermal","coretemp",<cid>,"core",<n>]
-        return (int(parts[2]), int(parts[-1]))
-    return sorted(cores, key=_key)
+        return len(parts) == 5 and parts[2].isdigit() and parts[4].isdigit()
+    def _key(name: str) -> tuple[int, int]:
+        parts = name.split(".")
+        return (int(parts[2]), int(parts[4]))
+    return sorted((n for n in names if _valid(n)), key=_key)
 
 
 def pkg_temp(series: dict) -> float | None:
