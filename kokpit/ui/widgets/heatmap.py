@@ -8,8 +8,25 @@ def thread_util_keys(n: int = 32) -> list[str]:
 
 
 def sorted_thermal_keys(names) -> list[str]:
-    cores = [n for n in names if n.startswith("thermal.core.") and n.rsplit(".", 1)[1].isdigit()]
-    return sorted(cores, key=lambda n: int(n.rsplit(".", 1)[1]))
+    # klucze coretemp: thermal.coretemp.<cid>.core.<n> (cid = chip hwmon —
+    # wielo-socket safe; n = nieciągły numer rdzenia). Sortuj po (cid, n).
+    def _valid(name: str) -> bool:
+        if not (name.startswith("thermal.coretemp.") and ".core." in name):
+            return False
+        parts = name.split(".")  # ["thermal","coretemp",<cid>,"core",<n>]
+        return len(parts) == 5 and parts[2].isdigit() and parts[4].isdigit()
+
+    def _key(name: str) -> tuple[int, int]:
+        parts = name.split(".")
+        return (int(parts[2]), int(parts[4]))
+
+    return sorted((n for n in names if _valid(n)), key=_key)
+
+
+def pkg_temp(series: dict) -> float | None:
+    vals = [v for k, v in series.items()
+            if k.startswith("thermal.coretemp.") and k.endswith(".pkg") and v is not None]
+    return max(vals) if vals else None
 
 
 class _CellGrid(QtWidgets.QWidget):
@@ -63,9 +80,7 @@ class CoreHeatmap(QtWidgets.QWidget):
 
     def set_temp(self, series: dict) -> None:
         seen = set(self._temp_keys) | set(sorted_thermal_keys(series.keys()))
-        self._temp_keys = sorted(
-            seen, key=lambda n: int(n.rsplit(".", 1)[1])
-        )
+        self._temp_keys = sorted_thermal_keys(seen)
         self._temp.ensure(len(self._temp_keys))
         for i, k in enumerate(self._temp_keys):
             v = series.get(k)
