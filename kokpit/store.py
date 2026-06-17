@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class Store:
@@ -36,8 +36,13 @@ class Store:
                     vmin REAL, vmax REAL, vavg REAL, vlast REAL,
                     PRIMARY KEY (series_id, bucket)
                 ) WITHOUT ROWID;
+                CREATE INDEX IF NOT EXISTS idx_sample_ts ON sample(ts);
                 """
             )
+            self.conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+            self.conn.commit()
+        if v < 2:
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_sample_ts ON sample(ts)")
             self.conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             self.conn.commit()
 
@@ -98,13 +103,11 @@ class Store:
                 "VALUES (?,?,?,?,?,?)",
                 rows,
             )
-            self.conn.commit()
 
     def prune(self, now_ms: int) -> None:
         from kokpit import config
         self.conn.execute("DELETE FROM sample WHERE ts < ?", (now_ms - config.RAW_RETENTION_S * 1000,))
         self.conn.execute("DELETE FROM rollup_1m WHERE bucket < ?", (now_ms - config.ROLLUP_RETENTION_S * 1000,))
-        self.conn.commit()
 
     def checkpoint(self) -> None:
         self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")

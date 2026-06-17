@@ -46,9 +46,11 @@ class LiveServer:
             dead = []
             for c in self._clients:
                 try:
-                    c.sendall(line)
+                    sent = c.send(line)
+                    if sent < len(line):
+                        dead.append(c)  # częściowy zapis = uszkodzony strumień NDJSON, rozłączamy
                 except BlockingIOError:
-                    pass                        # wolny klient: drop tego snapshotu
+                    pass                # 0 bajtów wysłanych (bufor pełny od razu), dropujemy snapshot
                 except OSError:
                     dead.append(c)
             for c in dead:

@@ -63,8 +63,9 @@ def run() -> None:
                 log.exception("tick nieudany")
             if start - last_rollup >= 60.0:
                 try:
-                    store.rollup_1m(now_ms)
-                    store.prune(now_ms)
+                    with store.conn:
+                        store.rollup_1m(now_ms)
+                        store.prune(now_ms)
                     store.checkpoint()
                 except Exception:
                     log.exception("rollup/prune/checkpoint nieudany")

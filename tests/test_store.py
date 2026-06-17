@@ -13,7 +13,8 @@ def test_write_and_query_roundtrip(tmp_path):
 def test_user_version_set(tmp_path):
     s = Store(tmp_path / "k.db")
     v = s.conn.execute("PRAGMA user_version").fetchone()[0]
-    assert v == SCHEMA_VERSION == 1
+    assert v == SCHEMA_VERSION
+    assert SCHEMA_VERSION == 2
     s.close()
 
 
