@@ -101,3 +101,71 @@ def test_checkpoint_runs(tmp_path):
     s.write(1000, {"x": 1.0})
     s.checkpoint()  # nie rzuca
     s.close()
+
+
+def test_query_rollup_returns_sorted_buckets_with_aggregates(tmp_path):
+    s = Store(tmp_path / "k.db")
+    # bucket 0 (ts 1000..3000) i bucket 60000 (ts 61000..62000)
+    s.write(1000, {"gpu.0.util": 10.0})
+    s.write(2000, {"gpu.0.util": 30.0})
+    s.write(3000, {"gpu.0.util": 20.0})   # vlast bucketu 0 (max ts) = 20, != vmax=30
+    s.write(61000, {"gpu.0.util": 40.0})
+    s.write(62000, {"gpu.0.util": 50.0})  # vlast bucketu 60000 = 50
+    s.rollup_1m(now_ms=120_000)
+    out = s.query_rollup("gpu.0.util", 0, 60000)
+    assert out == [
+        (0,     10.0, 30.0, 20.0, 20.0),   # (bucket, vmin, vmax, vavg, vlast)
+        (60000, 40.0, 50.0, 45.0, 50.0),
+    ]
+    s.close()
+
+
+def test_query_rollup_empty_range_returns_empty(tmp_path):
+    s = Store(tmp_path / "k.db")
+    s.write(1000, {"gpu.0.util": 10.0})
+    s.rollup_1m(now_ms=120_000)
+    assert s.query_rollup("gpu.0.util", 1, 59_999) == []   # bucket 0 poza zakresem
+    s.close()
+
+
+def test_query_rollup_filters_by_series(tmp_path):
+    s = Store(tmp_path / "k.db")
+    s.write(1000, {"gpu.0.util": 10.0, "cpu.thread.0.util": 5.0})
+    s.rollup_1m(now_ms=120_000)
+    assert s.query_rollup("cpu.thread.0.util", 0, 60000) == [(0, 5.0, 5.0, 5.0, 5.0)]
+    s.close()
+
+
+def test_list_series_returns_all_sorted(tmp_path):
+    s = Store(tmp_path / "k.db")
+    s.write(1000, {
+        "net.eth0.rx_bps": 1.0,
+        "net.eth0.tx_bps": 2.0,
+        "cpu.thread.0.util": 3.0,
+        "gpu.0.util": 4.0,
+    })
+    assert s.list_series() == [
+        "cpu.thread.0.util",
+        "gpu.0.util",
+        "net.eth0.rx_bps",
+        "net.eth0.tx_bps",
+    ]
+    s.close()
+
+
+def test_list_series_prefix_filters(tmp_path):
+    s = Store(tmp_path / "k.db")
+    s.write(1000, {
+        "net.eth0.rx_bps": 1.0,
+        "net.eth0.tx_bps": 2.0,
+        "network.bogus": 9.0,   # NIE pasuje do 'net.' (kropka literalna w LIKE)
+        "gpu.0.util": 4.0,
+    })
+    assert s.list_series("net.") == ["net.eth0.rx_bps", "net.eth0.tx_bps"]
+    s.close()
+
+
+def test_list_series_empty_db_returns_empty(tmp_path):
+    s = Store(tmp_path / "k.db")
+    assert s.list_series() == []
+    s.close()

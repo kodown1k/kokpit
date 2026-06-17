@@ -77,6 +77,40 @@ class Store:
         ).fetchall()
         return [(int(ts), float(v)) for ts, v in rows]
 
+    def query_rollup(self, series: str, since_ms: int, until_ms: int) -> list:
+        """Punkty z rollup_1m dla danej serii, rosnąco po bucket.
+
+        Zwraca [(bucket_ms, vmin, vmax, vavg, vlast)] — pełna piątka agregatów
+        w jednym zapytaniu, by UI rysowało linię (vavg) i pasmo min–max bez
+        drugiego round-tripu. Symetryczne do query() (raw [(ts, value)]).
+        """
+        rows = self.conn.execute(
+            "SELECT r.bucket, r.vmin, r.vmax, r.vavg, r.vlast FROM rollup_1m r "
+            "JOIN series_dict d ON d.id = r.series_id "
+            "WHERE d.name=? AND r.bucket>=? AND r.bucket<=? ORDER BY r.bucket",
+            (series, since_ms, until_ms),
+        ).fetchall()
+        return [(int(b), float(vmin), float(vmax), float(vavg), float(vlast))
+                for b, vmin, vmax, vavg, vlast in rows]
+
+    def list_series(self, prefix: str | None = None) -> list[str]:
+        """Nazwy serii znane bazie (z series_dict), rosnąco.
+
+        prefix (np. 'net.' albo 'thermal.core.') filtruje przez LIKE prefix%.
+        UI używa tego, gdy demon nie żyje i nie ma live-snapshotu do odkrycia
+        dynamicznych serii (interfejsy sieci, dyski, rdzenie temp).
+        """
+        if prefix is None:
+            rows = self.conn.execute(
+                "SELECT name FROM series_dict ORDER BY name"
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT name FROM series_dict WHERE name LIKE ?||'%' ORDER BY name",
+                (prefix,),
+            ).fetchall()
+        return [name for (name,) in rows]
+
     # --- dopisz w klasie Store, pod query() ---
 
     def rollup_1m(self, now_ms: int) -> None:
