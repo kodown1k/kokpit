@@ -34,8 +34,8 @@ class RingGauge(QtWidgets.QWidget):
         self._crit = crit
         self._unit = unit
         self._vmax = vmax
-        self._value: float | None = 0.0   # ostatnia realna wartość (None = brak danych)
-        self._shown = 0.0                  # animowana wartość wyświetlana
+        self._value: float | None = None   # ostatnia realna wartość (None = brak danych → „--")
+        self._shown = 0.0                   # animowana wartość wyświetlana (start od 0)
         self._target = 0.0
         self._sub = ""
         self._pix = neon_pixmap(icon, accent, 18) if icon else None

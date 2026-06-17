@@ -82,10 +82,11 @@ def round_pen(color, width: float) -> QtGui.QPen:
 
 def apply_glow(widget: QtWidgets.QWidget, color, radius: float = 16.0):
     """Fosforowa poświata: zero-offset kolorowy drop-shadow = bloom wokół
-    nieprzezroczystych pikseli (tekst/ikona). Statyczne i tanie (spec §4.6) —
+    nieprzezroczystych pikseli (tekst/ikona). Zwykle statyczne i tanie (spec §4.6) —
     stosować na etykietach/wartościach, NIE na stosach krzywych.
 
-    Zwraca efekt, by widget mógł aktualizować jego kolor (np. alert→czerwień)."""
+    Zwraca efekt, by widget mógł aktualizować jego kolor (np. alert→czerwień) albo
+    animować promień przez setBlurRadius (np. pulsujące ● LIVE)."""
     eff = QtWidgets.QGraphicsDropShadowEffect(widget)
     eff.setOffset(0.0, 0.0)
     eff.setBlurRadius(radius)

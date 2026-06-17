@@ -1,6 +1,9 @@
 """Neonowe ikony HUD: wczytaj SVG → podmień `currentColor` na kolor akcentu →
 renderuj przez QSvgRenderer do QPixmap. QtSvg nie rozwiązuje `currentColor`, więc
-recolor robimy string-replace'em. Wyniki cache'owane (ikony są niezmienne)."""
+recolor robimy string-replace'em. Wyniki cache'owane.
+
+Zwracana QPixmap jest WSPÓŁDZIELONA (cache) — tylko do wyświetlania (QLabel.setPixmap /
+QPushButton.setIcon kopiują zawartość); nie rysować po niej QPainterem poza tą funkcją."""
 from functools import lru_cache
 from pathlib import Path
 

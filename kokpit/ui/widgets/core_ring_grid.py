@@ -34,7 +34,7 @@ class CoreRingGrid(QtWidgets.QWidget):
         super().__init__()
         self._util = [None] * UTIL_N
         self._temp_keys: list[str] = []
-        self._temp_frac: dict[str, float | None] = {}
+        self._temp_fracs: dict[str, float | None] = {}
         util_rows = (UTIL_N + UTIL_COLS - 1) // UTIL_COLS
         self.setMinimumWidth(UTIL_COLS * (CELL + GAP) + 2 * PAD)
         self.setMinimumHeight(2 * LABEL_H + (util_rows + 4) * (CELL + GAP) + 2 * PAD)
@@ -47,7 +47,7 @@ class CoreRingGrid(QtWidgets.QWidget):
         # latch kluczy: siatka nie kurczy się, gdy rdzeń chwilowo zniknie (jak w heatmapie)
         seen = set(self._temp_keys) | set(sorted_thermal_keys(series.keys()))
         self._temp_keys = sorted_thermal_keys(seen)
-        self._temp_frac = {k: _temp_frac(series.get(k)) for k in self._temp_keys}
+        self._temp_fracs = {k: _temp_frac(series.get(k)) for k in self._temp_keys}
         self.update()
 
     def _paint_section(self, p: QtGui.QPainter, fracs, cols, y0, ramp) -> int:
@@ -75,6 +75,6 @@ class CoreRingGrid(QtWidgets.QWidget):
         y += LABEL_H
         p.setPen(QtGui.QColor("#5fb8d6"))
         p.drawText(PAD, y - 4, f"CORE TEMP ({len(self._temp_keys)})")
-        self._paint_section(p, [self._temp_frac.get(k) for k in self._temp_keys],
+        self._paint_section(p, [self._temp_fracs.get(k) for k in self._temp_keys],
                             TEMP_COLS, y, heat_rgb)
         p.end()
