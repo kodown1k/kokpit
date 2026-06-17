@@ -36,3 +36,25 @@ def test_heatmap_smoke(qapp):
     temp_missing = {f"thermal.coretemp.3.core.{i}": 40 + i for i in (4, 8, 12, 16, 20)}
     h.set_temp(temp_missing)
     assert len(h._temp._cells) == 6
+
+
+def test_mainwindow_builds_and_updates(qapp):
+    from kokpit.ui.app import MainWindow
+    from kokpit.ui.history_model import HistoryModel
+    from kokpit.ui.live_client import LiveClient
+
+    class FakeStore:
+        def query(self, n, a, b): return [(a, 1.0), (b, 2.0)]
+        def query_rollup(self, n, a, b): return [(a, 0.0, 9.0, 4.5, 5.0)]
+        def list_series(self, prefix=None): return []
+
+    live = LiveClient("/nonexistent.sock")           # nie startujemy wątku w teście
+    win = MainWindow(live, HistoryModel(FakeStore()), gpu_indices=[0])
+    win._on_state("connected")
+    win._on_snapshot({
+        "ts": 1000,
+        "series": {**{f"cpu.thread.{i}.util": 10 for i in range(32)},
+                   "gpu.0.util": 50.0, "mem.used": 1e9, "mem.total": 8e9},
+        "procs": [{"pid": 1, "name": "x", "cpu": 5.0, "rss": 1048576, "vram": 0.0}],
+    })
+    win._on_snapshot({"ts": 2000, "series": {}, "procs": []})   # puste — bez crasha
