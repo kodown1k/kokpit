@@ -1,5 +1,6 @@
 from PySide6 import QtWidgets
 
+from kokpit.ui.theme.palette import NEON_CYAN, NEON_LIME, NEON_MAGENTA, apply_glow
 from kokpit.ui.widgets.gauge import Gauge
 
 
@@ -28,9 +29,11 @@ class GpuPanel(QtWidgets.QWidget):
         self._tiles: dict[int, dict] = {}
         for i in gpu_indices:
             row = QtWidgets.QHBoxLayout()
-            util = Gauge(f"GPU{i} UTIL", "%", high=90, crit=99)
-            temp = Gauge(f"GPU{i} TEMP", "°C", high=80, crit=95)
+            util = Gauge(f"GPU{i} UTIL", "%", accent=NEON_CYAN)   # high=crit=None → util max = norma
+            temp = Gauge(f"GPU{i} TEMP", "°C", high=80, crit=95, accent=NEON_MAGENTA)
             vram = QtWidgets.QLabel("VRAM --")
+            vram.setStyleSheet(f"color:{NEON_LIME};font-weight:bold;")
+            apply_glow(vram, NEON_LIME, radius=12.0)
             row.addWidget(util)
             row.addWidget(temp)
             row.addWidget(vram)

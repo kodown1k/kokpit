@@ -7,6 +7,9 @@ from kokpit.ui.plot import make_history_plot, configured_curve
 
 TAIL_CAP_S = 3600  # twardy limit ogona live (sekundy) — chroni pamięć/fps
 
+# neonowa rotacja per-seria (bez glow-pen — to STOS, chronimy fps; spec §4.6)
+_NEON_CYCLE = [(57, 255, 20), (61, 240, 255), (255, 60, 200), (255, 176, 0)]
+
 
 def follow_active(view_x_max: float, last_ts_s: float, tol_s: float = 2.0) -> bool:
     return view_x_max >= last_ts_s - tol_s
@@ -31,14 +34,14 @@ class HistoryStrip(QtWidgets.QWidget):
         self._plots = {}
         self._curves = {}
         first_plot = None
-        for s in series:
+        for idx, s in enumerate(series):
             p = make_history_plot()
             label = QtWidgets.QLabel(s)
             label.setObjectName("tileTitle")
             lay.addWidget(label)
             lay.addWidget(p)
             self._plots[s] = p
-            self._curves[s] = configured_curve(p, color=(0, 255, 200))
+            self._curves[s] = configured_curve(p, color=_NEON_CYCLE[idx % len(_NEON_CYCLE)], width=2)
             if first_plot is None:
                 first_plot = p
             else:

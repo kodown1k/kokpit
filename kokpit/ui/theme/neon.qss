@@ -1,23 +1,81 @@
+/* Cyberpunk neon / NOC (styl 1) — czerń + neon cyan/magenta/lime, „wypalenie".
+   Realny glow robią QGraphicsDropShadowEffect (palette.apply_glow); QSS daje
+   czarne tło, neonowe obrysy i saturację chrome. */
+
 QWidget {
-    background-color: #07090f;
-    color: #c8f5ff;
-    font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+    background-color: #04060d;
+    color: #b8ecff;
+    font-family: "JetBrains Mono", "JetBrains Mono NL", "DejaVu Sans Mono", monospace;
     font-size: 11px;
 }
-QMainWindow, QFrame { background-color: #07090f; }
+QMainWindow, QFrame { background-color: #04060d; }
+
+/* tytuły kafelków — przygaszony cyan, spacing jak na telemetrii HUD */
+QLabel#tileTitle {
+    color: #5fb8d6;
+    font-weight: bold;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+QLabel#gaugeValue { background: transparent; }
+QLabel#statusBar { color: #39ff14; font-weight: bold; letter-spacing: 1px; }
+
+/* tabela procesów */
 QHeaderView::section {
-    background-color: #0c111b;
-    color: #6ad7ff;
+    background-color: #070b16;
+    color: #3df0ff;
     border: 0px;
-    padding: 2px 6px;
+    border-bottom: 1px solid #14384a;
+    padding: 3px 8px;
+    font-weight: bold;
+    letter-spacing: 1px;
 }
 QTableView {
-    background-color: #07090f;
-    gridline-color: #14202e;
-    selection-background-color: #112233;
+    background-color: #04060d;
+    alternate-background-color: #070b16;
+    gridline-color: #0e1b2a;
+    color: #b8ecff;
+    selection-background-color: #14384a;
+    selection-color: #aef6ff;
+    border: 1px solid #102433;
 }
-QLabel#tileTitle { color: #6ad7ff; font-weight: bold; letter-spacing: 1px; }
+QTableView::item:selected { color: #ff3cc8; }
+
+/* przyciski okien historii [1h|6h|24h|7d] */
 QPushButton {
-    background-color: #0c111b; border: 1px solid #1d6b8c; padding: 2px 8px; color: #9fe9ff;
+    background-color: #070b16;
+    border: 1px solid #1d6b8c;
+    border-radius: 3px;
+    padding: 3px 10px;
+    color: #9fe9ff;
+    font-weight: bold;
+    letter-spacing: 1px;
 }
-QPushButton:checked { background-color: #14384a; border-color: #39d0ff; }
+QPushButton:hover { border-color: #3df0ff; color: #d6f8ff; }
+QPushButton:checked {
+    background-color: #102b3a;
+    border-color: #3df0ff;
+    color: #eafcff;
+}
+
+/* ● LIVE — lime, wyróżniony (poświata z apply_glow) */
+QPushButton#liveButton {
+    color: #39ff14;
+    border: 1px solid #2a8f12;
+    background-color: #08130a;
+}
+QPushButton#liveButton:hover { border-color: #39ff14; }
+
+/* paski przewijania */
+QScrollBar:vertical, QScrollBar:horizontal { background: #04060d; border: none; }
+QScrollBar::handle {
+    background: #14384a;
+    border-radius: 3px;
+}
+QScrollBar::handle:hover { background: #1d6b8c; }
+QScrollBar::add-line, QScrollBar::sub-line { background: none; border: none; }
+QToolTip {
+    background-color: #070b16;
+    color: #3df0ff;
+    border: 1px solid #1d6b8c;
+}

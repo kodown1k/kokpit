@@ -14,7 +14,8 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 
 USE_OPENGL = "--opengl" in sys.argv
-pg.setConfigOptions(antialias=False, useOpenGL=USE_OPENGL)
+ANTIALIAS = "--aa" in sys.argv   # neon glow chce gładkich linii — zmierz jego koszt
+pg.setConfigOptions(antialias=ANTIALIAS, useOpenGL=USE_OPENGL)
 
 
 def build_window() -> tuple[QtWidgets.QWidget, list]:
@@ -70,7 +71,7 @@ def main() -> int:
         wall = time.perf_counter() - t_wall0
         cpu = time.process_time() - t_cpu0
         fps = frames["n"] / wall
-        print(f"opengl={USE_OPENGL}  frames={frames['n']}  fps={fps:.1f}  "
+        print(f"opengl={USE_OPENGL}  aa={ANTIALIAS}  frames={frames['n']}  fps={fps:.1f}  "
               f"cpu%={100 * cpu / wall:.1f}  (wall={wall:.1f}s)")
         app.quit()
 

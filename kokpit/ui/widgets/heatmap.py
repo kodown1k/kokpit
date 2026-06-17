@@ -1,6 +1,6 @@
 from PySide6 import QtWidgets
 
-from kokpit.ui.theme.palette import heat_rgb
+from kokpit.ui.theme.palette import heat_rgb, util_rgb
 
 
 def thread_util_keys(n: int = 32) -> list[str]:
@@ -30,16 +30,17 @@ def pkg_temp(series: dict) -> float | None:
 
 
 class _CellGrid(QtWidgets.QWidget):
-    def __init__(self, title: str, cols: int) -> None:
+    def __init__(self, title: str, cols: int, ramp=heat_rgb) -> None:
         super().__init__()
         self._cols = cols
+        self._ramp = ramp   # frac→(r,g,b); util→neon cyan/magenta, temp→thermal
         lay = QtWidgets.QVBoxLayout(self)
         lay.setContentsMargins(4, 2, 4, 2)
         label = QtWidgets.QLabel(title)
         label.setObjectName("tileTitle")
         lay.addWidget(label)
         self._grid = QtWidgets.QGridLayout()
-        self._grid.setSpacing(2)
+        self._grid.setSpacing(3)
         lay.addLayout(self._grid)
         self._cells: list[QtWidgets.QFrame] = []
 
@@ -54,10 +55,14 @@ class _CellGrid(QtWidgets.QWidget):
     def paint(self, index: int, frac: float | None) -> None:
         cell = self._cells[index]
         if frac is None:
-            cell.setStyleSheet("background:#0c111b;border:1px solid #14202e;")
+            cell.setStyleSheet(
+                "background:#0a0f1a;border:1px solid #16263a;border-radius:3px;")
             return
-        r, g, b = heat_rgb(frac)
-        cell.setStyleSheet(f"background:rgb({r},{g},{b});border:1px solid #14202e;")
+        r, g, b = self._ramp(frac)
+        # neonowy obrys w kolorze komórki = wrażenie poświaty bez per-cell efektu (fps)
+        cell.setStyleSheet(
+            f"background:rgb({r},{g},{b});"
+            f"border:1px solid rgba({r},{g},{b},170);border-radius:3px;")
 
 
 class CoreHeatmap(QtWidgets.QWidget):
@@ -65,8 +70,8 @@ class CoreHeatmap(QtWidgets.QWidget):
         super().__init__()
         lay = QtWidgets.QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        self._util = _CellGrid("THREAD UTIL (32)", cols=8)
-        self._temp = _CellGrid("CORE TEMP (24)", cols=6)
+        self._util = _CellGrid("THREAD UTIL (32)", cols=8, ramp=util_rgb)
+        self._temp = _CellGrid("CORE TEMP (24)", cols=6, ramp=heat_rgb)
         lay.addWidget(self._util)
         lay.addWidget(self._temp)
         self._temp_keys: list[str] = []

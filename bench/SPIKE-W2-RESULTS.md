@@ -23,3 +23,18 @@ Uzasadnienie:
   `setData` per snapshot live, redraw HistoryStrip per snapshot), więc operating-point CPU to ułamek:
   ~2.84% przy 1 Hz, ~28% dopiero przy ciągłych 10 fps. Wniosek: render jest data-driven (event-em
   ze snapshotu), nie free-running — nie wprowadzać własnej pętli renderującej z `timer(0)`.
+
+## Addendum (styl 1 „Cyberpunk neon / NOC") — antialiasing
+
+Neon-glow chce gładkich linii, więc włączono `antialias=True` (było `False`). Re-pomiar
+sufitu na tej maszynie (`bench/spike_w2.py [--aa]`, 32 krzywe + 4-stos history):
+
+| antialias | fps (sufit) |
+|---|---|
+| False | 99.1 |
+| True  | **95.0** |
+
+Koszt AA ≈ **4% przy suficie** (free-running) — przy realnym 1 Hz nieistotny, próg ≥10 fps
+spełniony z ~10× zapasem. Glow-pen (`plot.glow_curve`, podwójny pen) trzymany TYLKO na
+pojedynczych liniach agregatu (sparkline NET/DISK); stos HistoryStrip i siatki 32/24 bez
+glow-penów (spec §4.6). Decyzja: **`antialias=True` OK w budżecie.**
