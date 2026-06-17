@@ -43,7 +43,17 @@ Każda oś mapuje na **rodzinę serii**; agregat to **worst-of** po członkach r
 
 Uwagi:
 - **CPU** używa `cpu.loadavg.1` (pojedyncza seria, naturalny baseline, unbounded →
-  czysty z-score) zamiast agregowania `cpu.thread.*.util`.
+  czysty z-score) zamiast agregowania `cpu.thread.*.util`. **Known-limitation
+  (review HIGH):** loadavg.1 to 1-minutowa średnia krocząca z jądra, więc przy
+  bucketach 1-min jest podwójnie wygładzony → kolec CPU będzie tępy/opóźniony.
+  Akceptowane w v1; alternatywa do rozważenia: `cpu.thread.*.util` worst-of
+  (0–100, reaguje natychmiast).
+- **Discovery rodzin = suffix-match, nie prefix (review HIGH).** `disk.` jako prefix
+  łapie też `disk.<mount>.used_pct` (0–100, absurdalny z-score w rodzinie IO) — więc
+  Disk IO matchuje **wyłącznie** serie kończące się na `.read_bps` / `.write_bps`.
+  Dodatkowo bierzemy **tylko całe dyski** (`nvme0n1`, `sda`), NIE partycje
+  (`nvme0n1p1`) — IO całego dysku ≈ suma partycji, worst-of double-countowałby.
+  Wzorzec dysku: `disk.<dev>.{read,write}_bps` gdzie `<dev>` bez sufiksu `pN`.
 - **Swap**: `swap.total` nie jest składowany → brak czystej proximity; sam z-score
   (nagły wzrost swap = zaskoczenie). Każda aktywność swap na maszynie z zapasem RAM
   i tak da wysoki z-score względem baseline ≈ 0.
@@ -56,13 +66,21 @@ Uwagi:
 Dla pojedynczej serii-członka:
 
 ```
-z      = 0 if sigma < EPS else (value - mean) / sigma     # guard: σ≈0 ⇒ z=0
-z_norm = clamp(z / Z_FULL, 0, 1)                           # Z_FULL np. 3.0 σ = pełny kolec
-prox   = clamp(value / limit, 0, 1)   if limit else 0.0
+z      = 0 if sigma < EPS else (value_sm - mean) / sigma  # guard: σ≈0 ⇒ z=0
+z_norm = clamp(z / Z_FULL, 0, 1)                           # Z_FULL np. 3.0 σ = pełny kolec; ujemne z → 0
+prox   = clamp(value / limit, 0, 1)   if limit else 0.0    # proximity z surowej live
 spike  = max(z_norm, prox)            # dla osi z limitem
 spike  = z_norm                       # dla osi bez limitu
 ```
 
+- **Dopasowanie granularności (review HIGH).** Baseline σ liczone jest z `vavg`
+  (średnich minutowych) → mierzy zmienność *między* minutami, mniejszą niż rozrzut
+  surowych próbek 1 Hz. Porównanie surowej live (pełny rozrzut) z taką σ zawyżałoby
+  z-score (czulszy niż „3σ surowego sygnału"). Dlatego do **z-score** używamy
+  `value_sm` = krótki EWMA live (okno ~30–60 s, half-life ≈ bucket), żeby licznik
+  i mianownik były na tej samej granularności. **Proximity** liczymy z **surowej**
+  live (chcemy złapać natychmiastowy skok temp/RAM bez wygładzenia). EWMA żyje
+  w `glyph_model` (stan per-seria), nie w Store.
 - **Guard σ≈0 jest kluczowy:** maszyna która *zawsze* grzeje się do 95 °C ma σ≈0 →
   z=0 (brak zaskoczenia), ale `prox=0.95` → kolec i tak rośnie. Łapie chroniczny
   problem, którego czysty z-score by przeoczył.
@@ -79,42 +97,70 @@ spike  = z_norm                       # dla osi bez limitu
 ### 4.1 `kokpit/store.py` — nowa metoda `baseline()`
 
 ```python
-def baseline(self, series: str, now_ms: int, min_samples: int = 10) -> tuple | None:
-    """(mean, sigma, n) dla serii względem rollup_1m, albo None gdy za mało danych.
+def baseline(self, series: str, now_ms: int, min_samples: int | None = None) -> tuple | None:
+    """(mean, sigma, n, tier) dla serii względem rollup_1m, albo None gdy za mało danych.
 
-    Circadian: agreguje vavg z bucketów o tej samej godzinie-tygodnia co now_ms
-    (ostatnie ROLLUP_RETENTION). Gdy n < min_samples → fallback globalny (ostatnie
-    7 dni, dowolna pora). Dalej za mało → None.
+    Drabina fallbacku (review CRIT-2) — pierwszy poziom z n >= min_samples wygrywa:
+      1. 'circadian' — buckety o tej samej godzinie-tygodnia co now_ms (30d).
+      2. 'hour'      — ta sama GODZINA doby, dowolny dzień (30d) — wygładza brak
+                       danych w konkretnym slocie tygodnia, wciąż respektuje dobę.
+      3. 'global'    — dowolna pora, ostatnie 7 dni.
+    Żaden poziom nie zbiera min_samples → None. `tier` wraca do UI (etykieta stanu
+    'calibrating' dopóki nie osiągniemy 'circadian'). min_samples=None → z configu.
     """
 ```
 
 - Hour-of-week w SQL: `CAST(strftime('%w', bucket/1000,'unixepoch','localtime') AS INT)*24
   + CAST(strftime('%H', bucket/1000,'unixepoch','localtime') AS INT)`; ten sam wzór
-  na `now_ms` daje bieżącą hour-of-week (porównanie w `WHERE`).
+  na `now_ms` daje bieżącą hour-of-week (porównanie w `WHERE`). Tier 'hour' używa
+  samego `strftime('%H', ...)`.
 - mean/σ: `AVG(vavg)`, `AVG(vavg*vavg)` → `sigma = sqrt(max(0, E[x²] - E[x]²))`.
+  (σ jest między-minutowa — patrz dopasowanie granularności w §3.)
 - Czysty dopisek w klasie `Store` pod `list_series()` — bez zmian w schemacie,
   `write()`, `rollup_1m()`, `prune()`. (Spójne z konwencją kontraktu store-history-api.)
-- **strftime 'localtime'** zależy od strefy hosta — akceptowalne dla single-machine.
+- **Realna dostępność tieru 'circadian' (review CRIT-2):** pełny slot godzina-tygodnia
+  z `min_samples` próbkami wymaga, by ta sama godzina tego samego dnia tygodnia
+  powtórzyła się ≥`min_samples` razy → **~tygodnie pracy** (laptop gaszony nocą
+  zbiera wolniej). Przez pierwszy okres realnie działa tier 'hour'/'global'. To
+  **stan domyślny, nie edge-case** — patrz §6. Drabina degraduje płynnie zamiast
+  skakać circadian→global.
+- **Known-limitation: `strftime 'localtime'` + DST (review MED).** Strefa hosta —
+  akceptowalne dla single-machine. Ale 2× w roku (przejście DST) sloty hour-of-week
+  zsuwają się o godzinę względem historii sprzed zmiany → baseline dla godzin
+  granicznych jest tego dnia zły. Świadoma decyzja, nie cichy bug; pokryte testem (§7).
 
 ### 4.2 `kokpit/ui/glyph_model.py` (nowy, czysty Python — bez importu Qt)
 
 - Tabela definicji osi (nazwa, wzorzec/lista serii, czy z-only, limit).
 - `spike_score(value, baseline, limit) -> float` (wzór z §3).
-- Odkrywanie dynamicznych członków rodziny z kluczy live-snapshotu (i/lub
-  `Store.list_series(prefix)` gdy demon nie żyje).
+- Odkrywanie dynamicznych członków rodziny z kluczy live-snapshotu (suffix-match,
+  §2) i/lub `Store.list_series(prefix)` gdy demon nie żyje.
 - Agregacja worst-of → `list[SpokeScore]` (nazwa osi, score 0..1, wartość surowa do
-  tooltipa, flaga „brak danych").
-- Wejście: snapshot (dict serii→wartość) + baseline-provider (callable
-  `series → (mean,σ,n)|None`). **W pełni testowalne bez Qt.**
+  tooltipa, flaga „brak danych", `tier` baseline).
+- **Kształt wejścia (review CRIT-1):** live-snapshot jest ZAGNIEŻDŻONY —
+  `{"ts": now_ms, "series": {...}, "procs": [...]}` (`collectord.py` publikuje tak,
+  `app.py` czyta `snap["series"]`). glyph_model bierze **`snap["series"]`** jako dict
+  serii→wartość, a `now_ms` z **`snap["ts"]`** (potrzebne do hour-of-week i providera).
+  NIE traktować całego `snap` jako flat dict — `ts`/`procs` wpadłyby jako fałszywe serie.
+- Baseline-provider: callable `series → (mean,σ,n,tier)|None`. **W pełni testowalne
+  bez Qt** (provider i snapshot to czyste struktury).
 
 ### 4.3 `kokpit/ui/widgets/vital_glyph.py` (nowy QWidget)
 
 - `paintEvent` rysuje wielokąt z `list[SpokeScore]` (QPainter, jak inne widgety):
   N ramion równomiernie po okręgu, promień wierzchołka = `R_base + score * R_span`.
-- Kolor ramienia: `palette.util_rgb` / eskalacja `alert_color` wg score.
-- `palette.apply_glow` na wierzchołkach przekraczających próg.
+- **Kolor ramienia (review MED):** `palette.util_rgb(score)` — bierze frac 0–1, pasuje
+  wprost do score. NIE `alert_color()` bezpośrednio (jego progi to °C: high=80, crit=100);
+  jeśli chcemy eskalacji amber→czerwień w skali score, wołać z jawnymi progami
+  `alert_color(score, high=0.5, crit=0.8)`.
+- **Glow per-ramię (review MED):** `palette.apply_glow` ustawia `QGraphicsDropShadowEffect`
+  na CAŁYM widgecie (i sam ostrzega „nie na stosach krzywych") — NIE rysuje glow na
+  pojedynczym wierzchołku. Per-ramię glow rysujemy w `paintEvent` (drugi przebieg
+  QPainter rozmytym/grubszym pędzlem pod wierzchołkiem). `apply_glow` użyć co najwyżej
+  dla glow całego glifu gdy `max(score)` przekroczy próg.
 - Faint „baseline ring" = referencyjny spokojny wielokąt (wszystkie score=0) dla oka.
-- Centrum: skalar zdrowia = `max(score)` (lub RMS) + krótka etykieta.
+- Centrum: skalar zdrowia = `max(score)` (lub RMS) + krótka etykieta (w tym stan
+  `tier`: „calibrating" dopóki baseline nie jest 'circadian').
 
 ### 4.4 Wpięcie w `kokpit/ui/app.py`
 
@@ -129,9 +175,14 @@ def baseline(self, series: str, now_ms: int, min_samples: int = 10) -> tuple | N
 
 ## 6. Degradacja / cold-start
 
-- **Świeża maszyna (brak rollup):** wszystkie baseline `None` → glif w stanie
-  „calibrating" (DIM, spokojny wielokąt). Proximity dla osi z limitem (temp/RAM/VRAM)
-  **nadal działa** — nie wymaga historii.
+- **Pierwszy okres pracy (review CRIT-2) — to STAN DOMYŚLNY, nie edge-case.** Zanim
+  uzbiera się tier 'circadian' (tygodnie), glif działa na 'hour'/'global', a osie
+  bez limitu o baseline `None` (CPU, GPU, Swap, Disk, Net — 5 z 9) świecą score 0.
+  Realnie przez pierwsze dni glif to **~4-ramienny kształt na proximity** (RAM, VRAM,
+  CPU temp, GPU temp), nie 9-ramienny na zaskoczeniu. Centrum pokazuje stan `tier`
+  („calibrating"). Testy geometrii (§7) muszą to uwzględnić.
+- **Świeża maszyna (brak rollup):** wszystkie baseline `None` → wszystkie osie z-only
+  martwe; tylko proximity. Glif „calibrating" (DIM, spokojny wielokąt).
 - **Demon nie żyje:** live-snapshot pusty → glif DIM; baseline ze Store nadal czytelny
   z DB (read-only).
 - **σ≈0 / pojedyncza próbka:** guard z §3 (z=0), brak dzielenia przez zero.
@@ -139,15 +190,22 @@ def baseline(self, series: str, now_ms: int, min_samples: int = 10) -> tuple | N
 ## 7. Testy (TDD, RED → GREEN)
 
 - `tests/test_store.py` (dopisać): `baseline` — syntetyczny rollup o znanej
-  hour-of-week → poprawne mean/σ/n; `n < min_samples` → fallback 7d; pusty zakres →
-  `None`; seria stała → σ=0 zwrócone (guard po stronie konsumenta).
+  hour-of-week → poprawne mean/σ/n + `tier=='circadian'`; **drabina fallbacku
+  (first-class, review CRIT-2/LOW):** slot ma n=3 (<min) ale godzina-doby ma dość →
+  zwraca tier 'hour'; tylko global ma dość → tier 'global'; nic → `None`. Pusty
+  zakres → `None`; seria stała → σ=0 zwrócone. **DST (review MED/LOW):** test na
+  granicy zmiany czasu dokumentujący znane zachowanie 'localtime'.
 - `tests/test_glyph_model.py` (nowy): czysty z dla unbounded; `max(z,prox)` dla
-  bounded; σ≈0 ⇒ proximity dominuje; baseline `None` ⇒ proximity-only / „brak danych";
-  agregacja worst-of po rodzinie; dynamiczne odkrywanie członków; ujemny z (spadek) ⇒
-  score 0.
+  bounded; **EWMA live → z liczony z `value_sm`, proximity z surowej (review HIGH)**;
+  σ≈0 ⇒ proximity dominuje; baseline `None` ⇒ proximity-only / „brak danych";
+  agregacja worst-of po rodzinie; **discovery suffix-match: `disk.<mount>.used_pct`
+  NIE wpada do rodziny Disk IO, partycje pomijane (review HIGH)**; CRIT-1: wejście
+  `snap["series"]`/`snap["ts"]` (klucze `ts`/`procs` nie stają się seriami); ujemny z
+  (spadek) ⇒ score 0.
 - `tests/test_vital_glyph.py` (nowy): smoke — render N ramion do QImage; geometria
   calm (regularny wielokąt) vs spiked (jeden wydłużony wierzchołek) przez promienie;
-  brak crasha na cold-start / `None` / pusty snapshot.
+  **cold-start = 4 aktywne ramiona (proximity-only), reszta R_base (review MED)**;
+  brak crasha na `None` / pusty snapshot.
 
 ## 8. Świadomie poza zakresem v1 (YAGNI)
 
@@ -160,6 +218,9 @@ def baseline(self, series: str, now_ms: int, min_samples: int = 10) -> tuple | N
 
 - `Z_FULL` (np. 3.0) — z-score dający pełny kolec.
 - `EPS_SIGMA` — próg „σ≈0".
+- `LIVE_EWMA_S` (np. 45) — okno wygładzania live dla z-score (dopasowanie granularności, §3).
 - Limity: CPU temp 95 °C, GPU temp 90 °C, RAM/VRAM 100%.
-- `BASELINE_REFRESH_S` = 60, `BASELINE_MIN_SAMPLES` = 10, fallback window = 7 dni.
+- `BASELINE_REFRESH_S` = 60, fallback global window = 7 dni.
+- `BASELINE_MIN_SAMPLES` = 10 — **jedyne źródło prawdy**; `Store.baseline(min_samples=None)`
+  czyta tę stałą (sygnatura bez zaszytego default, review LOW).
 - Próg glow na wierzchołku (np. score ≥ 0.5).
