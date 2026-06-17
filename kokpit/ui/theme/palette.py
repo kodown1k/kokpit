@@ -1,6 +1,6 @@
 import os
 
-from PySide6 import QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 HIGH_C = 80.0
 CRIT_C = 100.0
@@ -67,7 +67,17 @@ def util_rgb(frac: float) -> tuple[int, int, int]:
 
 
 def _qcolor(color) -> QtGui.QColor:
+    if isinstance(color, QtGui.QColor):
+        return color
     return QtGui.QColor(color) if isinstance(color, str) else QtGui.QColor(*color)
+
+
+def round_pen(color, width: float) -> QtGui.QPen:
+    """QPen z RoundCap. (PySide6 nie przyjmuje `cap=` jako kwarg konstruktora —
+    trzeba setCapStyle.) `color`: hex str, (r,g,b) lub QColor."""
+    pen = QtGui.QPen(_qcolor(color), float(width))
+    pen.setCapStyle(QtCore.Qt.RoundCap)
+    return pen
 
 
 def apply_glow(widget: QtWidgets.QWidget, color, radius: float = 16.0):

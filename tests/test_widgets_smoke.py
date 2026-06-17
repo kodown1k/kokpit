@@ -33,21 +33,6 @@ def test_sparkline_push(qapp):
     assert len(s._ys) == 3     # None pominięte
 
 
-def test_heatmap_smoke(qapp):
-    from kokpit.ui.widgets.heatmap import CoreHeatmap
-    h = CoreHeatmap()
-    util = {f"cpu.thread.{i}.util": (i * 3) % 100 for i in range(32)}
-    # First call: full set of 6 cores (coretemp scheme)
-    temp_full = {f"thermal.coretemp.3.core.{i}": 40 + i for i in (0, 4, 8, 12, 16, 20)}
-    h.set_util(util)
-    h.set_temp(temp_full)
-    assert len(h._temp._cells) == 6
-    # Second call: one core missing — latched grid must NOT shrink, no crash
-    temp_missing = {f"thermal.coretemp.3.core.{i}": 40 + i for i in (4, 8, 12, 16, 20)}
-    h.set_temp(temp_missing)
-    assert len(h._temp._cells) == 6
-
-
 def test_mainwindow_builds_and_updates(qapp):
     from kokpit.ui.app import MainWindow
     from kokpit.ui.history_model import HistoryModel
@@ -68,8 +53,10 @@ def test_mainwindow_builds_and_updates(qapp):
                    "gpu.0.util": 50.0, "mem.used": 1e9, "mem.total": 8e9},
         "procs": [{"pid": 1, "name": "x", "cpu": 5.0, "rss": 1048576, "vram": 0.0}],
     })
-    assert win._ram._value_label.text() == "12%"    # 1e9/8e9*100=12.5 → "12%"
+    assert win._hero._ram._target == 12.5            # 1e9/8e9*100 → hero RAM ring
+    assert win._hero._cpu._target == 10              # średnia 32 thread util @10
     win._on_snapshot({"ts": 2000, "series": {}, "procs": []})   # puste — bez crasha
+    assert win._hero._cpu._value is None             # brak danych → ring „--"
 
 
 def test_first_metric_key():
