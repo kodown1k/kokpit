@@ -21,3 +21,13 @@ def test_sparkline_push(qapp):
     for v in [10, 20, None, 30]:
         s.push(v)
     assert len(s._ys) == 3     # None pominięte
+
+
+def test_heatmap_smoke(qapp):
+    from kokpit.ui.widgets.heatmap import CoreHeatmap
+    h = CoreHeatmap()
+    util = {f"cpu.thread.{i}.util": (i * 3) % 100 for i in range(32)}
+    temp = {f"thermal.core.{i}": 40 + i for i in (0, 4, 8, 12, 16, 20)}
+    temp["thermal.core.5"] = None  # brakująca seria — bez crasha
+    h.set_util(util)
+    h.set_temp({k: v for k, v in temp.items() if v is not None})
