@@ -36,15 +36,16 @@ class Store:
                     vmin REAL, vmax REAL, vavg REAL, vlast REAL,
                     PRIMARY KEY (series_id, bucket)
                 ) WITHOUT ROWID;
-                CREATE INDEX IF NOT EXISTS idx_sample_ts ON sample(ts);
                 """
             )
-            self.conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
-            self.conn.commit()
+            v = 1
         if v < 2:
+            # idx na samym ts: rollup_1m/prune filtrują po ts, a PK (series_id, ts)
+            # nie da się użyć dla samego ts -> bez tego full table scan co minutę
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_sample_ts ON sample(ts)")
-            self.conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
-            self.conn.commit()
+            v = 2
+        self.conn.execute(f"PRAGMA user_version={v}")
+        self.conn.commit()
 
     def series_id(self, name: str) -> int:
         cached = self._series_cache.get(name)
@@ -85,14 +86,16 @@ class Store:
             "FROM sample WHERE ts >= ? GROUP BY bucket, series_id",
             (since,),
         ).fetchall()
+        # vlast = value przy MAX(ts) w buckecie. SQLite "bare column": gdy w
+        # zapytaniu jest DOKŁADNIE jeden max(), nagie kolumny (value) pochodzą
+        # z tego samego wiersza co maksimum. Zastępuje skorelowane podzapytanie
+        # (które było O(N^2) — skan tabeli per wiersz).
         last_rows = self.conn.execute(
-            "SELECT (ts/60000)*60000 AS bucket, series_id, value FROM sample s "
-            "WHERE ts >= ? AND ts = ("
-            "  SELECT MAX(ts) FROM sample s2 WHERE s2.series_id = s.series_id "
-            "  AND (s2.ts/60000)*60000 = (s.ts/60000)*60000)",
+            "SELECT (ts/60000)*60000 AS bucket, series_id, value, MAX(ts) "
+            "FROM sample WHERE ts >= ? GROUP BY bucket, series_id",
             (since,),
         ).fetchall()
-        last = {(b, sid): v for b, sid, v in last_rows}
+        last = {(b, sid): v for b, sid, v, _ in last_rows}
         rows = [
             (b, sid, vmin, vmax, vavg, last.get((b, sid), vavg))
             for b, sid, vmin, vmax, vavg in aggs
