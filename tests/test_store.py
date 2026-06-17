@@ -169,3 +169,18 @@ def test_list_series_empty_db_returns_empty(tmp_path):
     s = Store(tmp_path / "k.db")
     assert s.list_series() == []
     s.close()
+
+
+def test_list_series_prefix_escapes_like_wildcards(tmp_path):
+    # `_` i `%` to wildcardy LIKE — w prefiksie muszą być literalne, inaczej
+    # 'net.rx_' przematchowałby też 'net.rxXbps' (ARP finding like-wildcard-escape).
+    s = Store(tmp_path / "k.db")
+    s.write(1000, {
+        "net.rx_bps": 1.0,   # literalny underscore
+        "net.rxXbps": 2.0,   # NIE powinno pasować do prefiksu 'net.rx_'
+        "100pct": 3.0,
+        "1X0pct": 4.0,       # NIE powinno pasować do prefiksu '100%'... znaczy '100' z literalnym %
+    })
+    assert s.list_series("net.rx_") == ["net.rx_bps"]
+    assert s.list_series("100%") == []          # '%' literalny: brak serii zaczynającej się od '100%'
+    s.close()

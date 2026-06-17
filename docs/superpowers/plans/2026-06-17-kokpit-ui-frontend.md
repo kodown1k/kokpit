@@ -440,7 +440,7 @@ class FakeStore:
 
     def list_series(self, prefix=None):
         self.calls.append(("list_series", prefix))
-        return ["net.eth0.rx_bps", "net.eth0.tx_bps", "gpu.0.util"]
+        return ["net.enp0s31f6.rx_bps", "net.enp0s31f6.tx_bps", "gpu.0.util"]
 
 
 def test_window_1h_uses_raw_seconds():
@@ -472,7 +472,7 @@ def test_threshold_boundary_is_raw_at_max():
 def test_available_series_delegates():
     st = FakeStore()
     assert HistoryModel(st).available_series("net.") == [
-        "net.eth0.rx_bps", "net.eth0.tx_bps", "gpu.0.util",
+        "net.enp0s31f6.rx_bps", "net.enp0s31f6.tx_bps", "gpu.0.util",
     ]
     assert st.calls[-1] == ("list_series", "net.")
 ```
@@ -1121,12 +1121,12 @@ class GpuPanel(QtWidgets.QWidget):
             row = QtWidgets.QHBoxLayout()
             util = Gauge(f"GPU{i} UTIL", "%", high=90, crit=99)
             temp = Gauge(f"GPU{i} TEMP", "°C", high=80, crit=95)
-            self._vram = QtWidgets.QLabel("VRAM --")
+            vram = QtWidgets.QLabel("VRAM --")        # lokalna — kafel trzymany w self._tiles[i]
             row.addWidget(util)
             row.addWidget(temp)
-            row.addWidget(self._vram)
+            row.addWidget(vram)
             lay.addLayout(row)
-            self._tiles[i] = {"util": util, "temp": temp, "vram": self._vram}
+            self._tiles[i] = {"util": util, "temp": temp, "vram": vram}
 
     def update_snapshot(self, snapshot: dict) -> None:
         for i, t in self._tiles.items():
@@ -1175,6 +1175,8 @@ class ProcTableModel(QtCore.QAbstractTableModel):
     def data(self, index, role=QtCore.Qt.DisplayRole):
         if role != QtCore.Qt.DisplayRole:
             return None
+        if not index.isValid() or index.row() >= len(self._rows):
+            return None                          # Qt woła data() z nieprawidłowym indeksem przy resecie modelu
         p = self._rows[index.row()]
         col = index.column()
         if col == 0:
@@ -1243,8 +1245,8 @@ git commit -m "feat(ui): GpuPanel (n/a via known indices) + ProcTable (bytes->MB
 - Produces:
   - `follow_active(view_x_max: float, last_ts_s: float, tol_s: float = 2.0) -> bool` — czy prawa krawędź widoku jest „przy teraz".
   - `window_mode(window_s: int) -> str` — `"raw"` (≤1h: ogon live 1 Hz) lub `"poll"` (>1h: odświeżanie DB, krótki ogon).
-  - `TAIL_CAP_S = 3600` — twardy limit ogona live w sekundach.
-  - `class HistoryStrip(QtWidgets.QWidget)`: `__init__(model: HistoryModel, series: list[str])`, `set_window(window_s, now_ms)`, `on_snapshot(snapshot)` (dokleja ogon tylko w trybie raw i gdy follow ON), `set_follow(bool)`.
+  - `TAIL_CAP_S = 3600` — twardy limit ogona live raw (sekundy); `BRIDGE_CAP_S = 60` / `BRIDGE_CAP_N = 60` — cap krótkiego mostu live w trybie poll (spec §4.3).
+  - `class HistoryStrip(QtWidgets.QWidget)`: `__init__(model: HistoryModel, series: list[str])`, `set_window(window_s, now_ms)`, `on_snapshot(snapshot)` (follow ON: raw → ogon 1 Hz; poll → krótki most live < min do najnowszego bucketu), `set_follow(bool)`.
 
 - [ ] **Step 1: Napisz failing test `tests/test_history_strip.py`**
 
@@ -1282,7 +1284,9 @@ from PySide6 import QtWidgets
 from kokpit.ui.history_model import HistoryModel, RAW_WINDOW_MAX_S
 from kokpit.ui.plot import make_history_plot, configured_curve
 
-TAIL_CAP_S = 3600  # twardy limit ogona live (sekundy) — chroni pamięć/fps
+TAIL_CAP_S = 3600   # twardy limit ogona live raw (sekundy) — chroni pamięć/fps
+BRIDGE_CAP_S = 60   # poll mode: most live tylko < ostatnią minutę (most do najnowszego bucketu, spec §4.3)
+BRIDGE_CAP_N = 60   # i twardy cap punktów mostu (kilkadziesiąt)
 
 
 def follow_active(view_x_max: float, last_ts_s: float, tol_s: float = 2.0) -> bool:
@@ -1301,7 +1305,9 @@ class HistoryStrip(QtWidgets.QWidget):
         self._follow = True
         self._window_s = 3600
         self._mode = "raw"
-        self._tail: dict[str, deque] = {s: deque() for s in series}
+        self._tail: dict[str, deque] = {s: deque() for s in series}     # raw: pełne okno
+        self._block: dict[str, list] = {s: [] for s in series}          # poll: blok rollup
+        self._bridge: dict[str, deque] = {s: deque() for s in series}   # poll: krótki most live
         lay = QtWidgets.QVBoxLayout(self)
         lay.setContentsMargins(2, 2, 2, 2)
         self._plots = {}
@@ -1326,11 +1332,13 @@ class HistoryStrip(QtWidgets.QWidget):
             xs = [t for t, _ in res.line]
             ys = [v for _, v in res.line]
             self._curves[s].setData(xs, ys)
-            self._tail[s] = deque(zip(xs, ys))
+            self._tail[s] = deque(zip(xs, ys))      # raw: ogon = pełne okno
+            self._block[s] = list(zip(xs, ys))      # poll: blok do połączenia z mostem
+            self._bridge[s].clear()                 # nowy blok → reset mostu live
 
     def on_snapshot(self, snapshot: dict) -> None:
-        if self._mode != "raw" or not self._follow:
-            return  # tryb poll odświeża się przez set_window (timer w app.py); brak doklejania 1 Hz
+        if not self._follow:
+            return  # follow OFF (pan/zoom w przeszłość) — nie ruszamy widoku
         ts = snapshot.get("ts")
         if ts is None:
             return
@@ -1339,12 +1347,24 @@ class HistoryStrip(QtWidgets.QWidget):
             v = snapshot.get("series", {}).get(s)
             if v is None:
                 continue
-            tail = self._tail[s]
-            tail.append((t_s, v))
-            cutoff = t_s - TAIL_CAP_S
-            while tail and tail[0][0] < cutoff:
-                tail.popleft()
-            self._curves[s].setData([t for t, _ in tail], [y for _, y in tail])
+            if self._mode == "raw":
+                # raw: ogon 1 Hz doklejany do prawej krawędzi, cap = TAIL_CAP_S
+                tail = self._tail[s]
+                tail.append((t_s, v))
+                cutoff = t_s - TAIL_CAP_S
+                while tail and tail[0][0] < cutoff:
+                    tail.popleft()
+                self._curves[s].setData([t for t, _ in tail], [y for _, y in tail])
+            else:
+                # poll (rollup): blok odświeża timer set_window; tu tylko KRÓTKI most live
+                # (< ostatnia minuta, cap kilkadziesiąt pkt) do najnowszego bucketu — spec §4.3
+                bridge = self._bridge[s]
+                bridge.append((t_s, v))
+                cutoff = t_s - BRIDGE_CAP_S
+                while bridge and (bridge[0][0] < cutoff or len(bridge) > BRIDGE_CAP_N):
+                    bridge.popleft()
+                pts = self._block[s] + list(bridge)
+                self._curves[s].setData([t for t, _ in pts], [y for _, y in pts])
 ```
 
 - [ ] **Step 4: Dodaj smoke test**
@@ -1366,8 +1386,9 @@ def test_history_strip_smoke(qapp):
     strip = HistoryStrip(HistoryModel(FakeStore()), ["cpu.loadavg.1"])
     strip.set_window(3600, now_ms=3_600_000)            # raw
     strip.on_snapshot({"ts": 3_600_500, "series": {"cpu.loadavg.1": 3.0}})
-    strip.set_window(86_400, now_ms=90_000_000)         # poll — on_snapshot nie dokleja
+    strip.set_window(86_400, now_ms=90_000_000)         # poll — on_snapshot dokleja krótki most
     strip.on_snapshot({"ts": 90_000_500, "series": {"cpu.loadavg.1": 4.0}})
+    assert len(strip._bridge["cpu.loadavg.1"]) == 1     # most live > 0 (spec §4.3, nie pusty jak wcześniej)
 ```
 
 - [ ] **Step 5: Uruchom — przechodzi**
@@ -1392,12 +1413,29 @@ git commit -m "feat(ui): HistoryStrip — follow-mode, raw-tail cap, poll for lo
 **Interfaces:**
 - Consumes: `LiveClient`, `HistoryModel`, `kokpit.store.Store`, `kokpit.config.{socket_path,db_path}`, wszystkie widgety, `qss_path`.
 - Produces:
-  - `class MainWindow(QtWidgets.QMainWindow)`: `__init__(live: LiveClient, model: HistoryModel, gpu_indices: list[int])`, slot `_on_snapshot(dict)`, `_on_state(str)`.
-  - `main() -> int` — entry-point (`pyproject [project.scripts] kokpit`).
+  - `class MainWindow(QtWidgets.QMainWindow)`: `__init__(live: LiveClient, model: HistoryModel, gpu_indices: list[int], net_key: str | None = None, disk_key: str | None = None)`, slot `_on_snapshot(dict)`, `_on_state(str)`.
+  - `primary_net_key(names) -> str | None`, `primary_disk_key(names) -> str | None` — wybór głównego iface/dysku z `list_series` (nazwy są dynamiczne — `enp…`/`wlp…`/`nvme0n1`, NIE `eth0`).
+  - `main() -> int` — entry-point (`pyproject [project.scripts] kokpit`); odkrywa net/disk przez `store.list_series("net."/"disk.")`.
 
 - [ ] **Step 1: Napisz failing smoke test (dopisz do `tests/test_widgets_smoke.py`)**
 
 ```python
+def test_primary_net_key_prefers_wired():
+    from kokpit.ui.app import primary_net_key
+    # nazwy dynamiczne (psutil) — NIE 'eth0'; wired (en*) > wifi (wl*)
+    names = ["net.wlp0s20f3.rx_bps", "net.enp110s0.rx_bps", "net.enp110s0.tx_bps"]
+    assert primary_net_key(names) == "net.enp110s0.rx_bps"
+    assert primary_net_key(["net.wlp0s20f3.rx_bps"]) == "net.wlp0s20f3.rx_bps"  # tylko wifi
+    assert primary_net_key([]) is None
+
+
+def test_primary_disk_key_whole_disk_not_partition():
+    from kokpit.ui.app import primary_disk_key
+    names = ["disk.nvme0n1p1.read_bps", "disk.nvme0n1.read_bps", "disk.nvme0n1p2.read_bps"]
+    assert primary_disk_key(names) == "disk.nvme0n1.read_bps"   # cały dysk, nie partycja
+    assert primary_disk_key([]) is None
+
+
 def test_mainwindow_builds_and_updates(qapp):
     from kokpit.ui.app import MainWindow
     from kokpit.ui.history_model import HistoryModel
@@ -1409,15 +1447,20 @@ def test_mainwindow_builds_and_updates(qapp):
         def list_series(self, prefix=None): return []
 
     live = LiveClient("/nonexistent.sock")           # nie startujemy wątku w teście
-    win = MainWindow(live, HistoryModel(FakeStore()), gpu_indices=[0])
+    win = MainWindow(live, HistoryModel(FakeStore()), gpu_indices=[0],
+                     net_key="net.enp0s31f6.rx_bps", disk_key="disk.nvme0n1.read_bps")
     win._on_state("connected")
     win._on_snapshot({
         "ts": 1000,
         "series": {**{f"cpu.thread.{i}.util": 10 for i in range(32)},
-                   "gpu.0.util": 50.0, "mem.used": 1e9, "mem.total": 8e9},
+                   "gpu.0.util": 50.0, "mem.used": 1e9, "mem.total": 8e9,
+                   "net.enp0s31f6.rx_bps": 1000.0, "disk.nvme0n1.read_bps": 2000.0},
         "procs": [{"pid": 1, "name": "x", "cpu": 5.0, "rss": 1048576, "vram": 0.0}],
     })
     win._on_snapshot({"ts": 2000, "series": {}, "procs": []})   # puste — bez crasha
+    # net_key=None nie wywala (brak iface) — defensywnie
+    win2 = MainWindow(live, HistoryModel(FakeStore()), gpu_indices=[0])
+    win2._on_snapshot({"ts": 3000, "series": {}, "procs": []})
 ```
 
 - [ ] **Step 2: Uruchom — failuje**
@@ -1443,14 +1486,37 @@ from kokpit.ui.widgets.history_strip import HistoryStrip
 from kokpit.ui.widgets.proc_table import ProcTable
 from kokpit.ui.widgets.sparkline import Sparkline
 
-_HIST_SERIES = ["cpu.loadavg.1", "gpu.0.util", "mem.used", "net.eth0.rx_bps"]
+_HIST_BASE = ["cpu.loadavg.1", "gpu.0.util", "mem.used"]   # net dołączany po odkryciu iface
+
+
+def primary_net_key(names) -> str | None:
+    # główny interfejs: wired (en*/eth*) > wifi (wl*), potem alfabetycznie.
+    # Nazwy są dynamiczne (psutil): enp110s0 / wlp0s20f3 — NIE 'eth0'.
+    ifaces = sorted({n.split(".")[1] for n in names
+                     if n.startswith("net.") and n.endswith(".rx_bps")})
+    if not ifaces:
+        return None
+    wired = [i for i in ifaces if i.startswith(("en", "eth"))]
+    return f"net.{(wired or ifaces)[0]}.rx_bps"
+
+
+def primary_disk_key(names) -> str | None:
+    # główny dysk: cały dysk, nie partycja (najkrótsza nazwa urządzenia: nvme0n1 < nvme0n1p1)
+    devs = {n.split(".")[1] for n in names
+            if n.startswith("disk.") and n.endswith(".read_bps")}
+    if not devs:
+        return None
+    return f"disk.{min(devs, key=lambda d: (len(d), d))}.read_bps"
 
 
 class MainWindow(QtWidgets.QMainWindow):
-    def __init__(self, live: LiveClient, model: HistoryModel, gpu_indices: list[int]) -> None:
+    def __init__(self, live: LiveClient, model: HistoryModel, gpu_indices: list[int],
+                 net_key: str | None = None, disk_key: str | None = None) -> None:
         super().__init__()
         self.setWindowTitle("kokpit")
         self._live = live
+        self._net_key = net_key
+        self._disk_key = disk_key
         central = QtWidgets.QWidget()
         self.setCentralWidget(central)
         grid = QtWidgets.QGridLayout(central)
@@ -1463,7 +1529,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._net = Sparkline("NET rx", window_s=120)
         self._disk = Sparkline("DISK r", window_s=120)
         self._procs = ProcTable()
-        self._hist = HistoryStrip(model, _HIST_SERIES)
+        hist_series = _HIST_BASE + ([net_key] if net_key else [])
+        self._hist = HistoryStrip(model, hist_series)
         self._status = QtWidgets.QLabel("disconnected")
         self._status.setObjectName("tileTitle")
 
@@ -1494,8 +1561,8 @@ class MainWindow(QtWidgets.QMainWindow):
         mt = s.get("mem.total")
         self._ram.set_value(None if not mt else s.get("mem.used", 0) / mt * 100)
         self._swap.set_value(s.get("swap.used"))
-        self._net.push(s.get("net.eth0.rx_bps"))
-        self._disk.push(s.get("disk.nvme0n1.read_bps"))
+        self._net.push(s.get(self._net_key) if self._net_key else None)
+        self._disk.push(s.get(self._disk_key) if self._disk_key else None)
         self._procs.set_rows(snap.get("procs", []))
         self._hist.on_snapshot(snap)
 
@@ -1514,8 +1581,13 @@ def main() -> int:
         gpu_indices = expected_gpu_indices(store.list_series("gpu."))
     except Exception:
         gpu_indices = [0]
+    try:                                            # nazwy iface/dysku są dynamiczne — odkryj, nie hardcoduj
+        net_key = primary_net_key(store.list_series("net."))
+        disk_key = primary_disk_key(store.list_series("disk."))
+    except Exception:
+        net_key = disk_key = None
     live = LiveClient(str(config.socket_path()))
-    win = MainWindow(live, model, gpu_indices)
+    win = MainWindow(live, model, gpu_indices, net_key=net_key, disk_key=disk_key)
     win.resize(1500, 950)
     win.show()
     live.start()
