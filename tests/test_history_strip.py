@@ -30,6 +30,11 @@ def test_history_strip_smoke(qapp):
 
     strip = HistoryStrip(HistoryModel(FakeStore()), ["cpu.loadavg.1"])
     strip.set_window(3600, now_ms=3_600_000)            # raw
+    assert len(strip._tail["cpu.loadavg.1"]) == 2       # seeded from query (2 points)
     strip.on_snapshot({"ts": 3_600_500, "series": {"cpu.loadavg.1": 3.0}})
+    # raw+follow appends 1, but TAIL_CAP_S pruning evicts the oldest (t=0.0 < cutoff=0.5)
+    assert len(strip._tail["cpu.loadavg.1"]) == 2       # net: still 2 after prune
     strip.set_window(86_400, now_ms=90_000_000)         # poll — on_snapshot nie dokleja
+    assert len(strip._tail["cpu.loadavg.1"]) == 1       # reseeded from query_rollup (1 point)
     strip.on_snapshot({"ts": 90_000_500, "series": {"cpu.loadavg.1": 4.0}})
+    assert len(strip._tail["cpu.loadavg.1"]) == 1       # poll mode: early-return, no append
