@@ -62,6 +62,51 @@ def test_mainwindow_builds_and_updates(qapp):
     win._on_snapshot({"ts": 2000, "series": {}, "procs": []})   # puste — bez crasha
 
 
+def test_first_metric_key():
+    from kokpit.ui.app import first_metric_key
+    # Normal case — picks the .rx_bps key
+    assert first_metric_key(
+        ["net.enp3s0.tx_bps", "net.enp3s0.rx_bps"], ".rx_bps"
+    ) == "net.enp3s0.rx_bps"
+    # Empty list → None
+    assert first_metric_key([], ".rx_bps") is None
+    # No matching suffix → None
+    assert first_metric_key(["net.enp3s0.tx_bps"], ".rx_bps") is None
+    # Multiple matching — returns alphabetically first
+    assert first_metric_key(
+        ["net.zzz.rx_bps", "net.aaa.rx_bps"], ".rx_bps"
+    ) == "net.aaa.rx_bps"
+
+
+def test_mainwindow_dynamic_net_disk_keys(qapp):
+    from kokpit.ui.app import MainWindow
+    from kokpit.ui.history_model import HistoryModel
+    from kokpit.ui.live_client import LiveClient
+
+    class FakeStore:
+        def query(self, n, a, b): return [(a, 1.0), (b, 2.0)]
+        def query_rollup(self, n, a, b): return [(a, 0.0, 9.0, 4.5, 5.0)]
+        def list_series(self, prefix=None):
+            if prefix == "net.":
+                return ["net.enp3s0.rx_bps", "net.enp3s0.tx_bps"]
+            if prefix == "disk.":
+                return ["disk.sda.read_bps", "disk.sda.write_bps"]
+            return []
+
+    live = LiveClient("/nonexistent.sock")
+    win = MainWindow(live, HistoryModel(FakeStore()), gpu_indices=[0])
+    assert win._net_key == "net.enp3s0.rx_bps"
+    assert win._disk_key == "disk.sda.read_bps"
+    # Snapshot with the real interface names — net sparkline should update without crash
+    win._on_snapshot({
+        "ts": 1000,
+        "series": {"net.enp3s0.rx_bps": 1e6, "disk.sda.read_bps": 2e6},
+        "procs": [],
+    })
+    assert len(win._net._ys) == 1
+    assert len(win._disk._ys) == 1
+
+
 def test_desktop_file_valid():
     import configparser, os
     path = os.path.join(os.path.dirname(__file__), "..", "packaging", "kokpit.desktop")

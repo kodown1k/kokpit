@@ -1,4 +1,5 @@
 import sys
+import time
 
 from PySide6 import QtWidgets
 
@@ -14,6 +15,15 @@ from kokpit.ui.widgets.proc_table import ProcTable
 from kokpit.ui.widgets.sparkline import Sparkline
 
 _HIST_SERIES = ["cpu.loadavg.1", "gpu.0.util", "mem.used", "net.eth0.rx_bps"]
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def first_metric_key(names: list[str], suffix: str) -> str | None:
+    """Return first (sorted) name ending with *suffix*, or None."""
+    return next((n for n in sorted(names) if n.endswith(suffix)), None)
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -37,6 +47,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._status = QtWidgets.QLabel("disconnected")
         self._status.setObjectName("tileTitle")
 
+        self._net_key = first_metric_key(model.available_series("net."), ".rx_bps")
+        self._disk_key = first_metric_key(model.available_series("disk."), ".read_bps")
+
         grid.addWidget(self._heatmap, 0, 0, 1, 2)
         grid.addWidget(self._gpu, 0, 2, 1, 2)
         grid.addWidget(self._pkg, 1, 0)
@@ -50,7 +63,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         live.snapshot.connect(self._on_snapshot)   # AutoConnection → wątek GUI
         live.state.connect(self._on_state)
-        self._hist.set_window(3600, now_ms=0)       # placeholder dopóki nie znamy now
+        self._hist.set_window(3600, _now_ms())
 
     def _on_state(self, state: str) -> None:
         self._status.setText(state)
@@ -63,9 +76,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._pkg.set_value(pkg_temp(s))
         mt = s.get("mem.total")
         self._ram.set_value(None if not mt else s.get("mem.used", 0) / mt * 100)
-        sw = s.get("swap.used"); self._swap.set_value(None if sw is None else sw / (1024 * 1024))
-        self._net.push(s.get("net.eth0.rx_bps"))
-        self._disk.push(s.get("disk.nvme0n1.read_bps"))
+        sw = s.get("swap.used")
+        self._swap.set_value(None if sw is None else sw / (1024 * 1024))
+        self._net.push(s.get(self._net_key) if self._net_key else None)
+        self._disk.push(s.get(self._disk_key) if self._disk_key else None)
         self._procs.set_rows(snap.get("procs", []))
         self._hist.on_snapshot(snap)
 
