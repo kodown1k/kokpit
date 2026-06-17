@@ -1,0 +1,23 @@
+QWidget {
+    background-color: #07090f;
+    color: #c8f5ff;
+    font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+    font-size: 11px;
+}
+QMainWindow, QFrame { background-color: #07090f; }
+QHeaderView::section {
+    background-color: #0c111b;
+    color: #6ad7ff;
+    border: 0px;
+    padding: 2px 6px;
+}
+QTableView {
+    background-color: #07090f;
+    gridline-color: #14202e;
+    selection-background-color: #112233;
+}
+QLabel#tileTitle { color: #6ad7ff; font-weight: bold; letter-spacing: 1px; }
+QPushButton {
+    background-color: #0c111b; border: 1px solid #1d6b8c; padding: 2px 8px; color: #9fe9ff;
+}
+QPushButton:checked { background-color: #14384a; border-color: #39d0ff; }
