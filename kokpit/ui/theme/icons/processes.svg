@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+     fill="none" stroke="currentColor" stroke-width="1.5"
+     stroke-linecap="round" stroke-linejoin="round">
+  <!-- ICON: processes -->
+  <!-- character mark: accent dot (active row marker) -->
+
+  <!-- rows -->
+  <path d="M9,7 H19 M9,12 H19 M9,17 H19"/>
+  <!-- idle markers -->
+  <path d="M5,12 H6.5 M5,17 H6.5"/>
+  <!-- active row -->
+  <circle cx="5.6" cy="7" r="1" fill="currentColor" stroke="none"/>
+</svg>
