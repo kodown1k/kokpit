@@ -51,10 +51,12 @@ def test_mainwindow_builds_and_updates(qapp):
     live = LiveClient("/nonexistent.sock")           # nie startujemy wątku w teście
     win = MainWindow(live, HistoryModel(FakeStore()), gpu_indices=[0])
     win._on_state("connected")
+    assert win._status.text() == "connected"
     win._on_snapshot({
         "ts": 1000,
         "series": {**{f"cpu.thread.{i}.util": 10 for i in range(32)},
                    "gpu.0.util": 50.0, "mem.used": 1e9, "mem.total": 8e9},
         "procs": [{"pid": 1, "name": "x", "cpu": 5.0, "rss": 1048576, "vram": 0.0}],
     })
+    assert win._ram._value_label.text() == "12%"    # 1e9/8e9*100=12.5 → "12%"
     win._on_snapshot({"ts": 2000, "series": {}, "procs": []})   # puste — bez crasha
