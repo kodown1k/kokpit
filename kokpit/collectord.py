@@ -1,4 +1,5 @@
 import logging
+import signal
 import time
 
 from kokpit import config
@@ -15,6 +16,14 @@ from kokpit.store import Store
 
 log = logging.getLogger("kokpit.collectord")
 
+_shutdown_requested = False
+
+
+def _handle_sigterm(signum, frame) -> None:
+    global _shutdown_requested
+    log.info("SIGTERM received, initiating graceful shutdown")
+    _shutdown_requested = True
+
 
 def build_host() -> LocalHost:
     return LocalHost([
@@ -30,6 +39,8 @@ def tick(host, store, live, procs, now_ms: int, dt_s: float) -> None:
 
 
 def run() -> None:
+    global _shutdown_requested
+    signal.signal(signal.SIGTERM, _handle_sigterm)
     logging.basicConfig(level=logging.INFO)
     store = Store(config.db_path())
     live = LiveServer(config.socket_path())
@@ -41,7 +52,7 @@ def run() -> None:
     last_rollup = 0.0
     log.info("kokpit-collectord wystartował (db=%s sock=%s)", config.db_path(), config.socket_path())
     try:
-        while True:
+        while not _shutdown_requested:
             start = time.monotonic()
             now_ms = int(time.time() * 1000)
             dt_s = (start - last_mono) if last_mono is not None else 0.0
