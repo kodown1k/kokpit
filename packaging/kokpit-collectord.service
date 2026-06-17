@@ -1,0 +1,12 @@
+[Unit]
+Description=kokpit telemetry collector
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/Code/kokpit/.venv/bin/kokpit-collectord
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
