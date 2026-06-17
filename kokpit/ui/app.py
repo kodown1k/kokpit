@@ -6,13 +6,36 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from kokpit import config
 from kokpit.ui.history_model import HistoryModel
 from kokpit.ui.live_client import LiveClient
-from kokpit.ui.theme.palette import NEON_CYAN, NEON_LIME, NEON_MAGENTA, apply_glow, qss_path
+from kokpit.ui.theme.icons import neon_pixmap
+from kokpit.ui.theme.palette import NEON_CYAN, NEON_LIME, apply_glow, qss_path
+from kokpit.ui.widgets.core_ring_grid import CoreRingGrid
 from kokpit.ui.widgets.gauge import Gauge
 from kokpit.ui.widgets.gpu_panel import GpuPanel, expected_gpu_indices
-from kokpit.ui.widgets.heatmap import CoreHeatmap, pkg_temp
+from kokpit.ui.widgets.hero_column import HeroColumn
 from kokpit.ui.widgets.history_strip import HistoryStrip, window_mode
 from kokpit.ui.widgets.proc_table import ProcTable
 from kokpit.ui.widgets.sparkline import Sparkline
+
+
+def _titled(icon_name: str, color: str, text: str, widget: QtWidgets.QWidget) -> QtWidgets.QWidget:
+    """Owija widget nagłówkiem [neon-ikona + tytuł]."""
+    box = QtWidgets.QWidget()
+    v = QtWidgets.QVBoxLayout(box)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(2)
+    h = QtWidgets.QHBoxLayout()
+    h.setContentsMargins(0, 0, 0, 0)
+    h.setSpacing(5)
+    ic = QtWidgets.QLabel()
+    ic.setPixmap(neon_pixmap(icon_name, color, 14))
+    h.addWidget(ic)
+    lbl = QtWidgets.QLabel(text)
+    lbl.setObjectName("tileTitle")
+    h.addWidget(lbl)
+    h.addStretch(1)
+    v.addLayout(h)
+    v.addWidget(widget)
+    return box
 
 # history-window presets: (label, seconds)
 WINDOWS = [("1h", 3600), ("6h", 21600), ("24h", 86400), ("7d", 604800)]
@@ -56,14 +79,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._disk_key = first_metric_key(model.available_series("disk."), ".read_bps")
         gpu0 = gpu_indices[0] if gpu_indices else 0
 
-        self._heatmap = CoreHeatmap()
-        self._gpu = GpuPanel(gpu_indices or [0])
-        self._ram = Gauge("RAM", "%", high=85, crit=95, accent=NEON_CYAN)
+        self._hero = HeroColumn(gpu0)
+        self._core = CoreRingGrid()
         self._swap = Gauge("SWAP", " MB", high=4096, crit=8192, accent=NEON_CYAN)
-        self._pkg = Gauge("CPU PKG", "°C", high=80, crit=100, accent=NEON_MAGENTA)
-        self._net = Sparkline("NET rx", window_s=120, color=(61, 240, 255))   # cyan
-        self._disk = Sparkline("DISK r", window_s=120, color=(57, 255, 20))   # lime
+        self._net = Sparkline("NET rx", window_s=120, color=(61, 240, 255), icon="net-rx")
+        self._disk = Sparkline("DISK r", window_s=120, color=(57, 255, 20), icon="disk-read")
         self._procs = ProcTable()
+        self._gpu_extra = GpuPanel(gpu_indices[1:]) if len(gpu_indices) > 1 else None
 
         hist_series = ["cpu.loadavg.1", f"gpu.{gpu0}.util", "mem.used"]
         if self._net_key:
@@ -85,24 +107,43 @@ class MainWindow(QtWidgets.QMainWindow):
             self._win_buttons[ws] = b
         self._live_button = QtWidgets.QPushButton("● LIVE")
         self._live_button.setObjectName("liveButton")
-        apply_glow(self._live_button, NEON_LIME, radius=14.0)
+        self._live_glow = apply_glow(self._live_button, NEON_LIME, radius=10.0)
         self._live_button.clicked.connect(self._jump_to_now)
         ctrl.addWidget(self._live_button)
         ctrl.addStretch(1)
         ctrl_w = QtWidgets.QWidget()
         ctrl_w.setLayout(ctrl)
+        # ● LIVE pulsuje — jedyna ciągła animacja (1 mały widget, ~1 Hz wizualnie)
+        self._pulse = QtCore.QVariantAnimation(self, duration=1100)
+        self._pulse.setStartValue(8.0)
+        self._pulse.setEndValue(20.0)
+        self._pulse.setEasingCurve(QtCore.QEasingCurve.InOutSine)
+        self._pulse.setLoopCount(-1)
+        self._pulse.valueChanged.connect(lambda v: self._live_glow.setBlurRadius(float(v)))
+        self._pulse.start()
 
-        grid.addWidget(self._heatmap, 0, 0, 1, 2)
-        grid.addWidget(self._gpu, 0, 2, 1, 2)
-        grid.addWidget(self._pkg, 1, 0)
-        grid.addWidget(self._ram, 1, 1)
-        grid.addWidget(self._swap, 1, 2)
-        grid.addWidget(self._net, 1, 3)
-        grid.addWidget(self._disk, 2, 0, 1, 2)
-        grid.addWidget(self._procs, 2, 2, 1, 2)
-        grid.addWidget(ctrl_w, 3, 0, 1, 4)
-        grid.addWidget(self._hist, 4, 0, 1, 4)
-        grid.addWidget(self._status, 5, 0, 1, 4)
+        # kolumna I/O (NET / DISK / SWAP [+ dodatkowe GPU jeśli >1])
+        io = QtWidgets.QWidget()
+        io_lay = QtWidgets.QVBoxLayout(io)
+        io_lay.setContentsMargins(0, 0, 0, 0)
+        io_lay.setSpacing(4)
+        io_lay.addWidget(self._net)
+        io_lay.addWidget(self._disk)
+        io_lay.addWidget(self._swap)
+        if self._gpu_extra is not None:
+            io_lay.addWidget(self._gpu_extra)
+
+        # layout B: hero-kolumna z lewej (span), reszta po prawej
+        grid.addWidget(self._hero, 0, 0, 6, 1)
+        grid.addWidget(self._core, 0, 1, 2, 2)
+        grid.addWidget(io, 0, 3, 2, 1)
+        grid.addWidget(self._hist, 2, 1, 2, 3)
+        grid.addWidget(_titled("processes", NEON_CYAN, "PROCESSES", self._procs), 4, 1, 1, 3)
+        grid.addWidget(ctrl_w, 5, 1, 1, 3)
+        grid.addWidget(self._status, 6, 0, 1, 4)
+        grid.setColumnStretch(0, 0)
+        for _c in (1, 2, 3):
+            grid.setColumnStretch(_c, 1)
 
         live.snapshot.connect(self._on_snapshot)   # AutoConnection → wątek GUI
         live.state.connect(self._on_state)
@@ -141,16 +182,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_snapshot(self, snap: dict) -> None:
         s = snap.get("series", {})
-        self._heatmap.set_util(s)
-        self._heatmap.set_temp(s)
-        self._gpu.update_snapshot(snap)
-        self._pkg.set_value(pkg_temp(s))
-        mt = s.get("mem.total")
-        self._ram.set_value(None if not mt else s.get("mem.used", 0) / mt * 100)
+        self._hero.update_snapshot(snap)
+        self._core.set_util(s)
+        self._core.set_temp(s)
         sw = s.get("swap.used")
         self._swap.set_value(None if sw is None else sw / (1024 * 1024))
         self._net.push(s.get(self._net_key) if self._net_key else None)
         self._disk.push(s.get(self._disk_key) if self._disk_key else None)
+        if self._gpu_extra is not None:
+            self._gpu_extra.update_snapshot(snap)
         self._procs.set_rows(snap.get("procs", []))
         self._hist.on_snapshot(snap)
 
