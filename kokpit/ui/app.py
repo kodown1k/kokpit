@@ -1,12 +1,12 @@
 import sys
 import time
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from kokpit import config
 from kokpit.ui.history_model import HistoryModel
 from kokpit.ui.live_client import LiveClient
-from kokpit.ui.theme.palette import qss_path
+from kokpit.ui.theme.palette import NEON_CYAN, NEON_LIME, NEON_MAGENTA, apply_glow, qss_path
 from kokpit.ui.widgets.gauge import Gauge
 from kokpit.ui.widgets.gpu_panel import GpuPanel, expected_gpu_indices
 from kokpit.ui.widgets.heatmap import CoreHeatmap, pkg_temp
@@ -58,11 +58,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._heatmap = CoreHeatmap()
         self._gpu = GpuPanel(gpu_indices or [0])
-        self._ram = Gauge("RAM", "%", high=85, crit=95)
-        self._swap = Gauge("SWAP", " MB", high=4096, crit=8192)
-        self._pkg = Gauge("CPU PKG", "°C", high=80, crit=100)
-        self._net = Sparkline("NET rx", window_s=120)
-        self._disk = Sparkline("DISK r", window_s=120)
+        self._ram = Gauge("RAM", "%", high=85, crit=95, accent=NEON_CYAN)
+        self._swap = Gauge("SWAP", " MB", high=4096, crit=8192, accent=NEON_CYAN)
+        self._pkg = Gauge("CPU PKG", "°C", high=80, crit=100, accent=NEON_MAGENTA)
+        self._net = Sparkline("NET rx", window_s=120, color=(61, 240, 255))   # cyan
+        self._disk = Sparkline("DISK r", window_s=120, color=(57, 255, 20))   # lime
         self._procs = ProcTable()
 
         hist_series = ["cpu.loadavg.1", f"gpu.{gpu0}.util", "mem.used"]
@@ -71,7 +71,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._hist = HistoryStrip(model, hist_series)
 
         self._status = QtWidgets.QLabel("disconnected")
-        self._status.setObjectName("tileTitle")
+        self._status.setObjectName("statusBar")
+        self._status_glow = apply_glow(self._status, NEON_CYAN, radius=10.0)
 
         # history controls: [1h|6h|24h|7d] window switcher + ● LIVE (jump to now / re-follow)
         ctrl = QtWidgets.QHBoxLayout()
@@ -83,6 +84,8 @@ class MainWindow(QtWidgets.QMainWindow):
             ctrl.addWidget(b)
             self._win_buttons[ws] = b
         self._live_button = QtWidgets.QPushButton("● LIVE")
+        self._live_button.setObjectName("liveButton")
+        apply_glow(self._live_button, NEON_LIME, radius=14.0)
         self._live_button.clicked.connect(self._jump_to_now)
         ctrl.addWidget(self._live_button)
         ctrl.addStretch(1)
@@ -131,6 +134,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_state(self, state: str) -> None:
         self._status.setText(state)
+        ok = state == "connected"
+        color = NEON_LIME if ok else "#ff2a2a"
+        self._status.setStyleSheet(f"color:{color};font-weight:bold;letter-spacing:1px;")
+        self._status_glow.setColor(QtGui.QColor(color))   # ref do QGraphicsDropShadowEffect (typed)
 
     def _on_snapshot(self, snap: dict) -> None:
         s = snap.get("series", {})

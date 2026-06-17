@@ -3,24 +3,26 @@ from collections import deque
 
 from PySide6 import QtWidgets
 
-from kokpit.ui.plot import make_live_plot, configured_curve
+from kokpit.ui.plot import make_live_plot, glow_curve
 
 
 class Sparkline(QtWidgets.QWidget):
-    def __init__(self, title: str, window_s: int = 300, y_range: tuple | None = None) -> None:
+    def __init__(self, title: str, window_s: int = 300, y_range: tuple | None = None,
+                 color=(61, 240, 255)) -> None:
         super().__init__()
         self._window_s = window_s
         self._xs: deque[float] = deque()
         self._ys: deque[float] = deque()
         lay = QtWidgets.QVBoxLayout(self)
-        lay.setContentsMargins(4, 2, 4, 2)
+        lay.setContentsMargins(6, 4, 6, 4)
         label = QtWidgets.QLabel(title)
         label.setObjectName("tileTitle")
         lay.addWidget(label)
         self._plot = make_live_plot()
         if y_range:
             self._plot.setYRange(*y_range)
-        self._curve = configured_curve(self._plot, color=(57, 208, 255))
+        # pojedyncza linia agregatu → neonowy glow-pen OK (spec §4.6)
+        self._curve = glow_curve(self._plot, color=color)
         lay.addWidget(self._plot)
 
     def push(self, value: float | None) -> None:
