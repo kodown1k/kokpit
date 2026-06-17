@@ -29,7 +29,7 @@ def build_window() -> tuple[QtWidgets.QWidget, list]:
     plot.setXRange(0, 300)
     for i in range(32):
         c = plot.plot(pen=pg.mkPen((i * 7 % 255, 200, 255 - (i * 5 % 255))))
-        c.setDownsampling(auto=True, mode="peak")
+        c.setDownsampling(auto=True, method="peak")
         c.setClipToView(True)
         curves.append(c)
     grid.addWidget(plot, 0, 0, 1, 4)
@@ -38,7 +38,7 @@ def build_window() -> tuple[QtWidgets.QWidget, list]:
         hp = pg.PlotWidget(axisItems={"bottom": pg.DateAxisItem()})
         hp.disableAutoRange()
         hc = hp.plot(pen=pg.mkPen((0, 255, 200)))
-        hc.setDownsampling(auto=True, mode="peak")
+        hc.setDownsampling(auto=True, method="peak")
         hc.setClipToView(True)
         curves.append(hc)
         grid.addWidget(hp, 1 + r, 0, 1, 4)
