@@ -23,5 +23,7 @@ def socket_path() -> Path:
 
 
 # Interfejsy/urządzenia wirtualne pomijane w metrykach sieci/dysków
+# Uses both re.match() for prefix filtering (^lo, ^docker) and re.search() for
+# substring matching (warp in CloudflareWARP). See test_iface_disk_filters for examples.
 IFACE_DENY = re.compile(r"^(lo|veth|br-|docker|tailscale|virbr|vmnet)|warp", re.IGNORECASE)
 DISK_DENY = re.compile(r"^(loop|ram|dm-|sr|fd)\d*$", re.IGNORECASE)
