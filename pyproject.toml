@@ -1,0 +1,22 @@
+[project]
+name = "kokpit"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["psutil>=6.0", "nvidia-ml-py>=12.560"]
+
+[project.optional-dependencies]
+ui = ["PySide6>=6.7", "pyqtgraph>=0.13"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+kokpit-collectord = "kokpit.collectord:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["kokpit*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
