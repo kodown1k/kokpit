@@ -19,6 +19,15 @@ Domyślnie, kończąc zmianę:
 
 Cel: branch wchodzi do `main` dopiero gdy review bota jest zielony (albo findings są świadomie odrzucone z uzasadnieniem).
 
+### Zakres skanu bota: `diffPathFilters` (NIE `.gitlab/ai-review.yml`)
+
+To, jakie pliki bot recenzuje, ustala **`analyzerConfig.diffPathFilters` w panelu per-projekt** (`PUT /api/projects/7`), a **nie** `.gitlab/ai-review.yml` w repo — ten plik robi wyłącznie PRD/docs-gen, nie scope code-review. Nie idź w ślepy zaułek z plikiem w repo.
+
+- Filtry to **include-globi** przekazywane jako `git diff -- <glob…>`; regex backendu (`^[A-Za-z0-9*?/.\-_]+$`) **nie** dopuszcza `:(exclude)`/`!`, więc „wyklucz X" robi się przez **whitelistę reszty**.
+- Default ARP zawiera `*.md` → dlatego markdown (plany/spec w `docs/`) był recenzowany jak kod (szum).
+- **Ustawione dla kokpit:** `['*.py', '*.toml', '*.service']` — Python + pyproject + systemd unit; markdown wypada. Commit zmieniający tylko `docs/**.md` → bot daje `mr_analyze:no_diff` (zielono, zero findings).
+- Zmiana: `PUT /api/projects/7` z **pełnym** `analyzerConfig` (PUT replace'uje: `costCeilingUsd`, `maxTurns`, `allowedTools`, `diffPathFilters`). Auth z `~/.secrets` (`PANEL`, `PANEL_AUTH_TOKEN`).
+
 ## Testy
 
 `.venv/bin/pytest -q` — pełny zestaw musi być zielony przed MR. TDD dla nowego kodu (testy first, RED → GREEN).
