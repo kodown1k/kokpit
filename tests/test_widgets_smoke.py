@@ -27,7 +27,12 @@ def test_heatmap_smoke(qapp):
     from kokpit.ui.widgets.heatmap import CoreHeatmap
     h = CoreHeatmap()
     util = {f"cpu.thread.{i}.util": (i * 3) % 100 for i in range(32)}
-    temp = {f"thermal.core.{i}": 40 + i for i in (0, 4, 8, 12, 16, 20)}
-    temp["thermal.core.5"] = None  # brakująca seria — bez crasha
+    # First call: full set of 6 cores
+    temp_full = {f"thermal.core.{i}": 40 + i for i in (0, 4, 8, 12, 16, 20)}
     h.set_util(util)
-    h.set_temp({k: v for k, v in temp.items() if v is not None})
+    h.set_temp(temp_full)
+    assert len(h._temp._cells) == 6
+    # Second call: one core missing — grid must NOT shrink, no crash
+    temp_missing = {f"thermal.core.{i}": 40 + i for i in (4, 8, 12, 16, 20)}
+    h.set_temp(temp_missing)
+    assert len(h._temp._cells) == 6

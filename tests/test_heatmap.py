@@ -14,3 +14,8 @@ def test_sorted_thermal_keys_noncontiguous():
     assert sorted_thermal_keys(names) == [
         "thermal.core.0", "thermal.core.4", "thermal.core.12",
     ]
+
+
+def test_sorted_thermal_keys_skips_non_numeric_suffix():
+    names = ["thermal.core.0", "thermal.core.max", "thermal.core.4"]
+    assert sorted_thermal_keys(names) == ["thermal.core.0", "thermal.core.4"]

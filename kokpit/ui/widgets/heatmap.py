@@ -1,5 +1,3 @@
-import math
-
 from PySide6 import QtWidgets
 
 from kokpit.ui.theme.palette import heat_rgb
@@ -10,7 +8,7 @@ def thread_util_keys(n: int = 32) -> list[str]:
 
 
 def sorted_thermal_keys(names) -> list[str]:
-    cores = [n for n in names if n.startswith("thermal.core.")]
+    cores = [n for n in names if n.startswith("thermal.core.") and n.rsplit(".", 1)[1].isdigit()]
     return sorted(cores, key=lambda n: int(n.rsplit(".", 1)[1]))
 
 
@@ -54,6 +52,7 @@ class CoreHeatmap(QtWidgets.QWidget):
         self._temp = _CellGrid("CORE TEMP (24)", cols=6)
         lay.addWidget(self._util)
         lay.addWidget(self._temp)
+        self._temp_keys: list[str] = []
 
     def set_util(self, series: dict) -> None:
         keys = thread_util_keys(32)
@@ -63,9 +62,12 @@ class CoreHeatmap(QtWidgets.QWidget):
             self._util.paint(i, None if v is None else max(0.0, min(1.0, v / 100.0)))
 
     def set_temp(self, series: dict) -> None:
-        keys = sorted_thermal_keys(series.keys())
-        self._temp.ensure(len(keys))
-        for i, k in enumerate(keys):
+        seen = set(self._temp_keys) | set(sorted_thermal_keys(series.keys()))
+        self._temp_keys = sorted(
+            seen, key=lambda n: int(n.rsplit(".", 1)[1])
+        )
+        self._temp.ensure(len(self._temp_keys))
+        for i, k in enumerate(self._temp_keys):
             v = series.get(k)
             # 20..100°C → 0..1
             self._temp.paint(i, None if v is None else max(0.0, min(1.0, (v - 20.0) / 80.0)))
