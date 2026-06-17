@@ -72,7 +72,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._status = QtWidgets.QLabel("disconnected")
         self._status.setObjectName("statusBar")
-        apply_glow(self._status, NEON_CYAN, radius=10.0)
+        self._status_glow = apply_glow(self._status, NEON_CYAN, radius=10.0)
 
         # history controls: [1h|6h|24h|7d] window switcher + ● LIVE (jump to now / re-follow)
         ctrl = QtWidgets.QHBoxLayout()
@@ -137,9 +137,7 @@ class MainWindow(QtWidgets.QMainWindow):
         ok = state == "connected"
         color = NEON_LIME if ok else "#ff2a2a"
         self._status.setStyleSheet(f"color:{color};font-weight:bold;letter-spacing:1px;")
-        eff = self._status.graphicsEffect()
-        if eff is not None:
-            eff.setColor(QtGui.QColor(color))
+        self._status_glow.setColor(QtGui.QColor(color))   # ref do QGraphicsDropShadowEffect (typed)
 
     def _on_snapshot(self, snap: dict) -> None:
         s = snap.get("series", {})

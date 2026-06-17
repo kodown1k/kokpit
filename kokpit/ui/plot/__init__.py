@@ -1,8 +1,10 @@
 import pyqtgraph as pg
 
-# Ustawione wg Task 0 (bench/SPIKE-W2-RESULTS.md). Domyślnie False — włącz tylko jeśli spike tego wymaga.
+# USE_OPENGL: wg Task 0 (SPIKE-W2-RESULTS.md) domyślnie False — włącz tylko jeśli spike tego wymaga.
 USE_OPENGL = False
 
+# antialias=True: gładkie linie neonu; addendum W2 — koszt AA ≈4% przy suficie (99→95 fps),
+# próg ≥10 fps spełniony z ~10× zapasem.
 pg.setConfigOptions(antialias=True, useOpenGL=USE_OPENGL, background="#04060d", foreground="#3df0ff")
 
 
