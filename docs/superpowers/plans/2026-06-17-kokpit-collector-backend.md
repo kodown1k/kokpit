@@ -294,18 +294,20 @@ class Store:
             return cached
         self.conn.execute("INSERT OR IGNORE INTO series_dict(name) VALUES (?)", (name,))
         sid = self.conn.execute("SELECT id FROM series_dict WHERE name=?", (name,)).fetchone()[0]
-        self.conn.commit()
-        self._series_cache[name] = sid
-        return sid
+        return sid   # do NOT cache here: caching before the caller commits would leave a stale id on rollback
 
     def write(self, ts_ms: int, samples: dict) -> None:
-        rows = [(ts_ms, self.series_id(name), float(value)) for name, value in samples.items()]
-        if not rows:
+        if not samples:
             return
-        self.conn.executemany(
-            "INSERT OR REPLACE INTO sample(ts, series_id, value) VALUES (?,?,?)", rows
-        )
-        self.conn.commit()
+        ids: dict[str, int] = {}
+        with self.conn:  # one transaction per tick: dict inserts + sample inserts commit together
+            for name in samples:
+                ids[name] = self.series_id(name)
+            self.conn.executemany(
+                "INSERT OR REPLACE INTO sample(ts, series_id, value) VALUES (?,?,?)",
+                [(ts_ms, ids[name], float(value)) for name, value in samples.items()],
+            )
+        self._series_cache.update(ids)  # cache only after the tick commits -> no stale ids on rollback
 
     def query(self, series: str, since_ms: int, until_ms: int) -> list:
         rows = self.conn.execute(
