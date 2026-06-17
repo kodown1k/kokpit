@@ -1,26 +1,64 @@
-import json
+from pathlib import Path
+
 from kokpit.sources.thermal import ThermalSource
 
-FIXTURE = json.dumps({
-    "coretemp-isa-0000": {
-        "Adapter": "ISA adapter",
-        "Package id 0": {"temp1_input": 97.0, "temp1_crit": 100.0},
-        "Core 0": {"temp2_input": 91.0},
-        "Core 4": {"temp3_input": 90.0},
-    },
-    "nvme-pci-e200": {"Composite": {"temp1_input": 53.9}},
-    "iwlwifi_1-virtual-0": {"temp1": {"temp1_input": 55.0}},
-})
+
+def _mkchip(root: Path, idx: int, name: str, temps: dict[str, tuple[str, int]]) -> None:
+    """Tworzy fałszywy chip hwmon. temps: {tempN: (label, milli_celsius)}.
+
+    Pusty label => brak pliku _label (jak iwlwifi).
+    """
+    chip = root / f"hwmon{idx}"
+    chip.mkdir(parents=True)
+    (chip / "name").write_text(name + "\n")
+    for tname, (label, milli) in temps.items():
+        (chip / f"{tname}_input").write_text(f"{milli}\n")
+        if label:
+            (chip / f"{tname}_label").write_text(label + "\n")
 
 
-def test_thermal_parses_sensors_json():
-    out = ThermalSource(runner=lambda: FIXTURE).sample(now_ms=0, dt_s=1.0)
+def test_thermal_parses_sysfs(tmp_path):
+    # numery plików temp* celowo NIE pokrywają się z numerami rdzeni
+    _mkchip(tmp_path, 3, "coretemp", {
+        "temp1": ("Package id 0", 97000),
+        "temp2": ("Core 0", 91000),
+        "temp6": ("Core 4", 90000),
+    })
+    _mkchip(tmp_path, 0, "nvme", {
+        "temp1": ("Composite", 53900),
+        "temp3": ("Sensor 2", 65000),   # ignorowane — bierzemy tylko Composite
+    })
+    _mkchip(tmp_path, 4, "iwlwifi_1", {
+        "temp1": ("", 55000),           # brak label
+    })
+    out = ThermalSource(root=tmp_path).sample(now_ms=0, dt_s=1.0)
     assert out["thermal.pkg"] == 97.0
     assert out["thermal.core.0"] == 91.0
     assert out["thermal.core.4"] == 90.0
     assert out["thermal.nvme.0"] == 53.9
     assert out["thermal.wifi"] == 55.0
+    assert out == {
+        "thermal.pkg": 97.0,
+        "thermal.core.0": 91.0,
+        "thermal.core.4": 90.0,
+        "thermal.nvme.0": 53.9,
+        "thermal.wifi": 55.0,
+    }
 
 
-def test_thermal_bad_output_returns_empty():
-    assert ThermalSource(runner=lambda: "not json").sample(now_ms=0, dt_s=1.0) == {}
+def test_thermal_multi_nvme_indexed_by_hwmon_order(tmp_path):
+    # hwmon10 musi sortować się PO hwmon2 (numerycznie, nie leksykalnie)
+    _mkchip(tmp_path, 2, "nvme", {"temp1": ("Composite", 50000)})
+    _mkchip(tmp_path, 10, "nvme", {"temp1": ("Composite", 60000)})
+    out = ThermalSource(root=tmp_path).sample(now_ms=0, dt_s=1.0)
+    assert out == {"thermal.nvme.0": 50.0, "thermal.nvme.1": 60.0}
+
+
+def test_thermal_missing_root_returns_empty(tmp_path):
+    assert ThermalSource(root=tmp_path / "nope").sample(now_ms=0, dt_s=1.0) == {}
+
+
+def test_thermal_unreadable_temp_skipped(tmp_path):
+    _mkchip(tmp_path, 0, "coretemp", {"temp1": ("Package id 0", 0)})
+    (tmp_path / "hwmon0" / "temp1_input").write_text("not_a_number\n")
+    assert ThermalSource(root=tmp_path).sample(now_ms=0, dt_s=1.0) == {}
