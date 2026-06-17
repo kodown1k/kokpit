@@ -870,7 +870,8 @@ git commit -m "feat(ui): Gauge + Sparkline widgets (alert color, sliding-window 
 - Consumes: `kokpit.ui.theme.palette.heat_rgb`.
 - Produces:
   - `thread_util_keys(n: int = 32) -> list[str]` → `["cpu.thread.0.util", …, "cpu.thread.31.util"]`.
-  - `sorted_thermal_keys(names) -> list[str]` — filtruje `thermal.core.<N>`, sortuje rosnąco po int N (klucze nieciągłe).
+  - `sorted_thermal_keys(names) -> list[str]` — filtruje `thermal.coretemp.<cid>.core.<n>`, sortuje po `(cid, n)` (cid = chip hwmon, wielo-socket safe; n nieciągłe).
+  - `pkg_temp(series: dict) -> float | None` — najgorętszy pakiet CPU spośród `thermal.coretemp.<cid>.pkg` (max po socketach; `None` gdy brak).
   - `class CoreHeatmap(QtWidgets.QWidget)`: `__init__()`, `set_util(series: dict)`, `set_temp(series: dict)` — czyta przez `.get`, koloruje komórki przez `heat_rgb` (util: 0..100 → 0..1; temp: 20..100°C → 0..1).
 
 - [ ] **Step 1: Napisz failing test `tests/test_heatmap.py`**
@@ -887,11 +888,31 @@ def test_thread_util_keys():
 
 
 def test_sorted_thermal_keys_noncontiguous():
-    names = ["thermal.pkg", "thermal.core.12", "thermal.core.0",
-             "thermal.core.4", "thermal.nvme.0"]
+    names = ["thermal.coretemp.3.pkg", "thermal.coretemp.3.core.12",
+             "thermal.coretemp.3.core.0", "thermal.coretemp.3.core.4",
+             "thermal.nvme.0"]
     assert sorted_thermal_keys(names) == [
-        "thermal.core.0", "thermal.core.4", "thermal.core.12",
+        "thermal.coretemp.3.core.0", "thermal.coretemp.3.core.4",
+        "thermal.coretemp.3.core.12",
     ]
+
+
+def test_sorted_thermal_keys_dual_socket():
+    # dwa chipy coretemp (cid 3 i 5) — sort po (cid, n), bez kolizji
+    names = ["thermal.coretemp.5.core.0", "thermal.coretemp.3.core.0",
+             "thermal.coretemp.3.core.4"]
+    assert sorted_thermal_keys(names) == [
+        "thermal.coretemp.3.core.0", "thermal.coretemp.3.core.4",
+        "thermal.coretemp.5.core.0",
+    ]
+
+
+def test_pkg_temp_picks_hottest_socket():
+    from kokpit.ui.widgets.heatmap import pkg_temp
+    assert pkg_temp({"thermal.coretemp.3.pkg": 55.0,
+                     "thermal.coretemp.5.pkg": 71.0,
+                     "thermal.coretemp.3.core.0": 90.0}) == 71.0
+    assert pkg_temp({"cpu.thread.0.util": 10.0}) is None   # brak pkg → None
 ```
 
 - [ ] **Step 2: Uruchom — failuje**
@@ -914,8 +935,19 @@ def thread_util_keys(n: int = 32) -> list[str]:
 
 
 def sorted_thermal_keys(names) -> list[str]:
-    cores = [n for n in names if n.startswith("thermal.core.")]
-    return sorted(cores, key=lambda n: int(n.rsplit(".", 1)[1]))
+    # klucze coretemp: thermal.coretemp.<cid>.core.<n> (cid = chip hwmon —
+    # wielo-socket safe; n = nieciągły numer rdzenia). Sortuj po (cid, n).
+    cores = [n for n in names if n.startswith("thermal.coretemp.") and ".core." in n]
+    def _key(name: str) -> tuple[int, int]:
+        parts = name.split(".")          # ["thermal","coretemp",<cid>,"core",<n>]
+        return (int(parts[2]), int(parts[-1]))
+    return sorted(cores, key=_key)
+
+
+def pkg_temp(series: dict) -> float | None:
+    vals = [v for k, v in series.items()
+            if k.startswith("thermal.coretemp.") and k.endswith(".pkg") and v is not None]
+    return max(vals) if vals else None
 
 
 class _CellGrid(QtWidgets.QWidget):
@@ -988,8 +1020,8 @@ def test_heatmap_smoke(qapp):
     from kokpit.ui.widgets.heatmap import CoreHeatmap
     h = CoreHeatmap()
     util = {f"cpu.thread.{i}.util": (i * 3) % 100 for i in range(32)}
-    temp = {f"thermal.core.{i}": 40 + i for i in (0, 4, 8, 12, 16, 20)}
-    temp["thermal.core.5"] = None  # brakująca seria — bez crasha
+    temp = {f"thermal.coretemp.3.core.{i}": 40 + i for i in (0, 4, 8, 12, 16, 20)}
+    temp["thermal.coretemp.3.core.5"] = None  # brakująca seria — bez crasha
     h.set_util(util)
     h.set_temp({k: v for k, v in temp.items() if v is not None})
 ```
@@ -1402,7 +1434,7 @@ from kokpit.ui.live_client import LiveClient
 from kokpit.ui.theme.palette import qss_path
 from kokpit.ui.widgets.gauge import Gauge
 from kokpit.ui.widgets.gpu_panel import GpuPanel, expected_gpu_indices
-from kokpit.ui.widgets.heatmap import CoreHeatmap
+from kokpit.ui.widgets.heatmap import CoreHeatmap, pkg_temp
 from kokpit.ui.widgets.history_strip import HistoryStrip
 from kokpit.ui.widgets.proc_table import ProcTable
 from kokpit.ui.widgets.sparkline import Sparkline
@@ -1454,7 +1486,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._heatmap.set_util(s)
         self._heatmap.set_temp(s)
         self._gpu.update_snapshot(snap)
-        self._pkg.set_value(s.get("thermal.pkg"))
+        self._pkg.set_value(pkg_temp(s))
         mt = s.get("mem.total")
         self._ram.set_value(None if not mt else s.get("mem.used", 0) / mt * 100)
         self._swap.set_value(s.get("swap.used"))

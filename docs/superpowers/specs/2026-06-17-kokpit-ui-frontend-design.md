@@ -24,12 +24,12 @@ wyłączony (spec główny §2: to skill webowy).
 | Live | Unix socket `$XDG_RUNTIME_DIR/kokpit.sock`, NDJSON, 1 linia/snapshot: `{"ts": int_ms, "series": {nazwa: float}, "procs": [...]}` | `kokpit/live.py` `LiveServer.publish()` / `kokpit/collectord.py:38` |
 | Proc row | `{"pid","name","cpu":float,"rss":float_bytes,"vram":float_bytes}`, sort malejąco po `cpu`, top-N | `kokpit/proc.py:33` |
 | Historia raw | `Store.query(series, since_ms, until_ms) -> [(ts_ms, value)]` (raw `sample`, 48h) | `kokpit/store.py:65` |
-| Historia rollup | `Store.query_rollup(series, since_ms, until_ms) -> [(bucket_ms, vmin, vmax, vavg, vlast)]` — **do dostarczenia przez sesję backendową** | kontrakt |
-| Lista serii | `Store.list_series(prefix=None) -> [str]` — **do dostarczenia przez sesję backendową** | kontrakt |
+| Historia rollup | `Store.query_rollup(series, since_ms, until_ms) -> [(bucket_ms, vmin, vmax, vavg, vlast)]` — **dostarczone** | `kokpit/store.py:82` |
+| Lista serii | `Store.list_series(prefix=None) -> [str]` (prefix → `LIKE prefix%` z ESCAPE) — **dostarczone** | `kokpit/store.py:98` |
 
 **Nazwy serii (dosłowny kontrakt widgetów):**
 - `cpu.thread.{0..31}.util`, `cpu.thread.{n}.freq`, `cpu.loadavg.1`
-- `thermal.core.{N}` (N = nieciągły numer „Core N": 0,4,8,12…), `thermal.pkg`, `thermal.nvme.{i}`, `thermal.wifi`
+- `thermal.coretemp.{cid}.core.{n}` (cid = numer chipa hwmon — wielo-socket safe; n = nieciągły „Core n": 0,4,8,12…), `thermal.coretemp.{cid}.pkg`, `thermal.nvme.{i}`, `thermal.wifi`
 - `gpu.{i}.util|vram_used|vram_total|temp|power|clock_sm|fan`
 - `mem.*`, `swap.*`, `net.{iface}.rx_bps|tx_bps`, `disk.{dev}.read_bps|write_bps`, `disk.{mount}.used_pct`
 
@@ -76,7 +76,7 @@ historia **nie** zna bufora live poza doklejanym ogonem follow-mode.
 ### 4.4 Widgety live (cienkie, logika poza Qt — spec główny §8)
 - **`Gauge`** — skalar; kolor wg progów `theme` (green<high · amber · red≥crit).
 - **`Sparkline`** — X = sliding window „ostatnie N s", z ring-buffera live.
-- **`CoreHeatmap`** — **dwa osobne gridy obok siebie**: UTIL 32 komórki (`cpu.thread.{0..31}.util`, fill=util%) i TEMP 24 komórki (`thermal.core.{N}`, fill=°C). Klucze temp nieciągłe → czytane wprost ze snapshotu/`list_series`, sortowane; bez mapowania phys→wątki w MVP (mapa zachowana na tooltip/przyszły overlay, nie na ścieżce krytycznej).
+- **`CoreHeatmap`** — **dwa osobne gridy obok siebie**: UTIL 32 komórki (`cpu.thread.{0..31}.util`, fill=util%) i TEMP 24 komórki (`thermal.coretemp.{cid}.core.{n}`, fill=°C). Klucze temp nieciągłe → czytane wprost ze snapshotu/`list_series`, sortowane po `(cid, n)`; bez mapowania phys→wątki w MVP (mapa zachowana na tooltip/przyszły overlay, nie na ścieżce krytycznej).
 - **`GpuPanel`** — kafel per-GPU. Liczbę oczekiwanych GPU UI zna z `list_series('gpu.')` na starcie (DB), więc **„absent vs removed vs skipped tick" jest rozróżnialne**: znany `gpu.{i}` bez serii w bieżącym snapshocie → kafel **„n/a"**; brak `gpu.*` w DB → brak panelu. Iteruje `gpu.{i}.util|vram_used|vram_total|power|temp|fan|clock_sm`; błąd NVML → „n/a", bez crasha.
 - **`ProcTable`** — `QTableView`, top-N z `snapshot["procs"]`: pid·name·cpu·rss·vram, sort po cpu. **Konwersja jednostek po stronie UI:** `rss`/`vram` z `proc.py` są w **bajtach** (`memory_info().rss`, NVML usedGpuMemory) → dzielone przez `1024**2` do MB w modelu tabeli (backend nie konwertuje).
 - **Defensywny odczyt snapshotu (wszystkie widgety):** seria może być nieobecna (pierwszy tick pomija `*_bps`; skipnięty tick źródła; n/a GPU). Każdy odczyt przez `snapshot["series"].get(name)` z obsługą `None` — nigdy `snapshot["series"][name]` (KeyError wywaliłby render).
@@ -86,7 +86,7 @@ historia **nie** zna bufora live poza doklejanym ogonem follow-mode.
 
 ### 4.6 `theme/`
 - `neon.qss` (chrome Qt — glow tu jest statyczny i tani), `palette.py` (rampy kolorów + progi alertu high=80/crit=100 z sensors, konfigurowalne). pyqtgraph: czarne tło.
-- **Glow pen (zawężone — ochrona budżetu fps):** drugi szeroki półprzezroczysty pen pod właściwym podwaja draw-calls i wyłącza fast-path — więc **tylko na pojedynczych liniach agregatu** (`cpu.loadavg.1`, `thermal.pkg`), **NIGDY** na 32 krzywych wątków / 24 temp ani na stosie HistoryStrip. Ostateczna decyzja o glow live podlega budżetowi z Task 0 (W2).
+- **Glow pen (zawężone — ochrona budżetu fps):** drugi szeroki półprzezroczysty pen pod właściwym podwaja draw-calls i wyłącza fast-path — więc **tylko na pojedynczych liniach agregatu** (`cpu.loadavg.1`, `thermal.coretemp.<cid>.pkg`), **NIGDY** na 32 krzywych wątków / 24 temp ani na stosie HistoryStrip. Ostateczna decyzja o glow live podlega budżetowi z Task 0 (W2).
 
 ### 4.7 `app.py` — bento NOC grid (Layout A)
 ```
