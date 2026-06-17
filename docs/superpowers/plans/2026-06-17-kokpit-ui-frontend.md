@@ -1117,12 +1117,12 @@ class GpuPanel(QtWidgets.QWidget):
             row = QtWidgets.QHBoxLayout()
             util = Gauge(f"GPU{i} UTIL", "%", high=90, crit=99)
             temp = Gauge(f"GPU{i} TEMP", "°C", high=80, crit=95)
-            self._vram = QtWidgets.QLabel("VRAM --")
+            vram = QtWidgets.QLabel("VRAM --")        # lokalna — kafel trzymany w self._tiles[i]
             row.addWidget(util)
             row.addWidget(temp)
-            row.addWidget(self._vram)
+            row.addWidget(vram)
             lay.addLayout(row)
-            self._tiles[i] = {"util": util, "temp": temp, "vram": self._vram}
+            self._tiles[i] = {"util": util, "temp": temp, "vram": vram}
 
     def update_snapshot(self, snapshot: dict) -> None:
         for i, t in self._tiles.items():
@@ -1171,6 +1171,8 @@ class ProcTableModel(QtCore.QAbstractTableModel):
     def data(self, index, role=QtCore.Qt.DisplayRole):
         if role != QtCore.Qt.DisplayRole:
             return None
+        if not index.isValid() or index.row() >= len(self._rows):
+            return None                          # Qt woła data() z nieprawidłowym indeksem przy resecie modelu
         p = self._rows[index.row()]
         col = index.column()
         if col == 0:
@@ -1239,8 +1241,8 @@ git commit -m "feat(ui): GpuPanel (n/a via known indices) + ProcTable (bytes->MB
 - Produces:
   - `follow_active(view_x_max: float, last_ts_s: float, tol_s: float = 2.0) -> bool` — czy prawa krawędź widoku jest „przy teraz".
   - `window_mode(window_s: int) -> str` — `"raw"` (≤1h: ogon live 1 Hz) lub `"poll"` (>1h: odświeżanie DB, krótki ogon).
-  - `TAIL_CAP_S = 3600` — twardy limit ogona live w sekundach.
-  - `class HistoryStrip(QtWidgets.QWidget)`: `__init__(model: HistoryModel, series: list[str])`, `set_window(window_s, now_ms)`, `on_snapshot(snapshot)` (dokleja ogon tylko w trybie raw i gdy follow ON), `set_follow(bool)`.
+  - `TAIL_CAP_S = 3600` — twardy limit ogona live raw (sekundy); `BRIDGE_CAP_S = 60` / `BRIDGE_CAP_N = 60` — cap krótkiego mostu live w trybie poll (spec §4.3).
+  - `class HistoryStrip(QtWidgets.QWidget)`: `__init__(model: HistoryModel, series: list[str])`, `set_window(window_s, now_ms)`, `on_snapshot(snapshot)` (follow ON: raw → ogon 1 Hz; poll → krótki most live < min do najnowszego bucketu), `set_follow(bool)`.
 
 - [ ] **Step 1: Napisz failing test `tests/test_history_strip.py`**
 
@@ -1278,7 +1280,9 @@ from PySide6 import QtWidgets
 from kokpit.ui.history_model import HistoryModel, RAW_WINDOW_MAX_S
 from kokpit.ui.plot import make_history_plot, configured_curve
 
-TAIL_CAP_S = 3600  # twardy limit ogona live (sekundy) — chroni pamięć/fps
+TAIL_CAP_S = 3600   # twardy limit ogona live raw (sekundy) — chroni pamięć/fps
+BRIDGE_CAP_S = 60   # poll mode: most live tylko < ostatnią minutę (most do najnowszego bucketu, spec §4.3)
+BRIDGE_CAP_N = 60   # i twardy cap punktów mostu (kilkadziesiąt)
 
 
 def follow_active(view_x_max: float, last_ts_s: float, tol_s: float = 2.0) -> bool:
@@ -1297,7 +1301,9 @@ class HistoryStrip(QtWidgets.QWidget):
         self._follow = True
         self._window_s = 3600
         self._mode = "raw"
-        self._tail: dict[str, deque] = {s: deque() for s in series}
+        self._tail: dict[str, deque] = {s: deque() for s in series}     # raw: pełne okno
+        self._block: dict[str, list] = {s: [] for s in series}          # poll: blok rollup
+        self._bridge: dict[str, deque] = {s: deque() for s in series}   # poll: krótki most live
         lay = QtWidgets.QVBoxLayout(self)
         lay.setContentsMargins(2, 2, 2, 2)
         self._plots = {}
@@ -1322,11 +1328,13 @@ class HistoryStrip(QtWidgets.QWidget):
             xs = [t for t, _ in res.line]
             ys = [v for _, v in res.line]
             self._curves[s].setData(xs, ys)
-            self._tail[s] = deque(zip(xs, ys))
+            self._tail[s] = deque(zip(xs, ys))      # raw: ogon = pełne okno
+            self._block[s] = list(zip(xs, ys))      # poll: blok do połączenia z mostem
+            self._bridge[s].clear()                 # nowy blok → reset mostu live
 
     def on_snapshot(self, snapshot: dict) -> None:
-        if self._mode != "raw" or not self._follow:
-            return  # tryb poll odświeża się przez set_window (timer w app.py); brak doklejania 1 Hz
+        if not self._follow:
+            return  # follow OFF (pan/zoom w przeszłość) — nie ruszamy widoku
         ts = snapshot.get("ts")
         if ts is None:
             return
@@ -1335,12 +1343,24 @@ class HistoryStrip(QtWidgets.QWidget):
             v = snapshot.get("series", {}).get(s)
             if v is None:
                 continue
-            tail = self._tail[s]
-            tail.append((t_s, v))
-            cutoff = t_s - TAIL_CAP_S
-            while tail and tail[0][0] < cutoff:
-                tail.popleft()
-            self._curves[s].setData([t for t, _ in tail], [y for _, y in tail])
+            if self._mode == "raw":
+                # raw: ogon 1 Hz doklejany do prawej krawędzi, cap = TAIL_CAP_S
+                tail = self._tail[s]
+                tail.append((t_s, v))
+                cutoff = t_s - TAIL_CAP_S
+                while tail and tail[0][0] < cutoff:
+                    tail.popleft()
+                self._curves[s].setData([t for t, _ in tail], [y for _, y in tail])
+            else:
+                # poll (rollup): blok odświeża timer set_window; tu tylko KRÓTKI most live
+                # (< ostatnia minuta, cap kilkadziesiąt pkt) do najnowszego bucketu — spec §4.3
+                bridge = self._bridge[s]
+                bridge.append((t_s, v))
+                cutoff = t_s - BRIDGE_CAP_S
+                while bridge and (bridge[0][0] < cutoff or len(bridge) > BRIDGE_CAP_N):
+                    bridge.popleft()
+                pts = self._block[s] + list(bridge)
+                self._curves[s].setData([t for t, _ in pts], [y for _, y in pts])
 ```
 
 - [ ] **Step 4: Dodaj smoke test**
@@ -1362,8 +1382,9 @@ def test_history_strip_smoke(qapp):
     strip = HistoryStrip(HistoryModel(FakeStore()), ["cpu.loadavg.1"])
     strip.set_window(3600, now_ms=3_600_000)            # raw
     strip.on_snapshot({"ts": 3_600_500, "series": {"cpu.loadavg.1": 3.0}})
-    strip.set_window(86_400, now_ms=90_000_000)         # poll — on_snapshot nie dokleja
+    strip.set_window(86_400, now_ms=90_000_000)         # poll — on_snapshot dokleja krótki most
     strip.on_snapshot({"ts": 90_000_500, "series": {"cpu.loadavg.1": 4.0}})
+    assert len(strip._bridge["cpu.loadavg.1"]) == 1     # most live > 0 (spec §4.3, nie pusty jak wcześniej)
 ```
 
 - [ ] **Step 5: Uruchom — przechodzi**
