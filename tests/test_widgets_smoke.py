@@ -7,6 +7,16 @@ def test_make_plots_smoke(qapp):
     assert lp is not None and hp is not None
 
 
+def test_plots_y_autorange_x_manual(qapp):
+    # Regresja: make_*_plot MUSI mieć Y-autorange ON (X OFF — sterowany setXRange).
+    # Stare disableAutoRange() (oba OFF) zostawiało dane (loadavg ~20, bps ~1e6, mem
+    # ~1e10) poza domyślnym widokiem (0,1) -> puste wykresy historii i sparkline NET/DISK.
+    from kokpit.ui.plot import make_live_plot, make_history_plot
+    for mk in (make_live_plot, make_history_plot):
+        _x_auto, y_auto = mk().getViewBox().state["autoRange"]
+        assert y_auto is True       # Y dopasowuje się do danych (X nadpisywany ręcznie setXRange)
+
+
 def test_gauge_set_value(qapp):
     from kokpit.ui.widgets.gauge import Gauge
     g = Gauge("CPU PKG", "°C")
