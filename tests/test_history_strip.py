@@ -102,3 +102,50 @@ def test_x_link_set_on_secondary_plots(qapp):
     for s in series[1:]:
         linked = strip._plots[s].getViewBox().linkedView(0)
         assert linked is first_plot.getViewBox(), f"Plot for {s} not X-linked to first plot"
+
+
+class _XRangeFakeStore:
+    def query(self, n, a, b): return [(a, 1.0), (b, 2.0)]
+    def query_rollup(self, n, a, b): return [(a, 0.0, 9.0, 4.5, 5.0)]
+    def list_series(self, prefix=None): return []
+
+
+def test_set_window_frames_x_range(qapp):
+    import pytest
+    from kokpit.ui.history_model import HistoryModel
+    from kokpit.ui.widgets.history_strip import HistoryStrip
+
+    strip = HistoryStrip(HistoryModel(_XRangeFakeStore()), ["cpu.loadavg.1"])
+    strip.set_window(3600, now_ms=10_000_000)        # now_s = 10000.0
+    lo, hi = strip._master_vb.viewRange()[0]
+    assert hi == pytest.approx(10000.0, abs=1.0)      # right edge at "now"
+    assert (hi - lo) == pytest.approx(3600, abs=2.0)  # span = window
+
+
+def test_follow_advances_x_range(qapp):
+    import pytest
+    from kokpit.ui.history_model import HistoryModel
+    from kokpit.ui.widgets.history_strip import HistoryStrip
+
+    strip = HistoryStrip(HistoryModel(_XRangeFakeStore()), ["cpu.loadavg.1"])
+    strip.set_window(3600, now_ms=10_000_000)
+    strip.on_snapshot({"ts": 10_000_500, "series": {"cpu.loadavg.1": 3.0}})  # t_s = 10000.5
+    lo, hi = strip._master_vb.viewRange()[0]
+    assert hi == pytest.approx(10000.5, abs=1.0)      # view slid so "now" stays at right edge
+    assert (hi - lo) == pytest.approx(3600, abs=2.0)
+
+
+def test_panned_away_accumulates_tail_without_sliding(qapp):
+    import pytest
+    from kokpit.ui.history_model import HistoryModel
+    from kokpit.ui.widgets.history_strip import HistoryStrip
+
+    strip = HistoryStrip(HistoryModel(_XRangeFakeStore()), ["cpu.loadavg.1"])
+    strip.set_window(3600, now_ms=10_000_000)         # view framed at [6400, 10000]
+    strip.set_follow(False)                            # user panned into the past
+    strip.on_snapshot({"ts": 10_000_500, "series": {"cpu.loadavg.1": 3.0}})
+    # data still accumulates (no gap on return) ...
+    assert strip._tail["cpu.loadavg.1"][-1] == (10000.5, 3.0)
+    # ... but the view did NOT slide (right edge stays at the framed 'now', not 10000.5)
+    _lo, hi = strip._master_vb.viewRange()[0]
+    assert hi == pytest.approx(10000.0, abs=1.0)

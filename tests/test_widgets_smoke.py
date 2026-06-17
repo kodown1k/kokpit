@@ -114,3 +114,73 @@ def test_desktop_file_valid():
     cp.read(path)
     assert cp["Desktop Entry"]["Exec"] == "kokpit"
     assert cp["Desktop Entry"]["Type"] == "Application"
+
+
+def _mw(gpu_indices=(0,)):
+    """Build a MainWindow against a minimal fake store (live thread not started)."""
+    from kokpit.ui.app import MainWindow
+    from kokpit.ui.history_model import HistoryModel
+    from kokpit.ui.live_client import LiveClient
+
+    class FakeStore:
+        def query(self, n, a, b): return [(a, 1.0), (b, 2.0)]
+        def query_rollup(self, n, a, b): return [(a, 0.0, 9.0, 4.5, 5.0)]
+        def list_series(self, prefix=None): return []
+
+    return MainWindow(LiveClient("/nonexistent.sock"), HistoryModel(FakeStore()), list(gpu_indices))
+
+
+def test_window_switcher_changes_window(qapp):
+    from kokpit.ui.widgets.history_strip import window_mode
+    win = _mw()
+    assert win._cur_window_s == 3600              # default 1h after __init__
+    assert win._win_buttons[3600].isChecked()
+    win._set_window(86400)                         # 24h → rollup/poll
+    assert win._cur_window_s == 86400
+    assert win._win_buttons[86400].isChecked()
+    assert not win._win_buttons[3600].isChecked()
+    assert window_mode(win._cur_window_s) == "poll"
+
+
+def test_refresh_history_polls_only_for_rollup_windows(qapp):
+    win = _mw()
+    calls = []
+    win._hist.set_window = lambda ws, now: calls.append(ws)
+    win._cur_window_s = 3600                        # raw → live tail keeps it current
+    win._refresh_history()
+    assert calls == []                             # no reseed for the raw window
+    win._cur_window_s = 86400                       # poll → re-query DB
+    win._refresh_history()
+    assert calls == [86400]
+
+
+def test_jump_to_now_reenables_follow(qapp):
+    win = _mw()
+    win._hist.set_follow(False)                     # simulate user panned into the past
+    assert win._hist._follow is False
+    win._jump_to_now()
+    assert win._hist._follow is True
+
+
+def test_primary_net_key_prefers_wired():
+    from kokpit.ui.app import primary_net_key
+    # wired (eth0) preferred even though a wifi iface (ath0) sorts alphabetically first
+    assert primary_net_key(["net.ath0.rx_bps", "net.eth0.rx_bps"]) == "net.eth0.rx_bps"
+    assert primary_net_key(["net.wlp2s0.rx_bps", "net.enp3s0.rx_bps"]) == "net.enp3s0.rx_bps"
+    # no wired iface → alphabetically first
+    assert primary_net_key(["net.wlan0.rx_bps", "net.ath0.rx_bps"]) == "net.ath0.rx_bps"
+    # none / no rx_bps → None
+    assert primary_net_key([]) is None
+    assert primary_net_key(["net.eth0.tx_bps"]) is None
+
+
+def test_set_window_reengages_follow_but_refresh_does_not(qapp):
+    win = _mw()
+    win._hist.set_follow(False)                     # user panned into the past
+    win._set_window(21600)                          # explicit window switch → re-engage follow
+    assert win._hist._follow is True
+    # timer-driven refresh must NOT yank a panned-away view back to following
+    win._hist.set_follow(False)
+    win._cur_window_s = 21600                        # poll window
+    win._refresh_history()
+    assert win._hist._follow is False

@@ -53,28 +53,38 @@ class HistoryStrip(QtWidgets.QWidget):
         view_x_max = self._master_vb.viewRange()[0][1]
         self._follow = follow_active(view_x_max, self._last_ts_s)
 
+    def _apply_x_range(self, lo: float, hi: float) -> None:
+        # programmatic range → fires sigRangeChanged, NOT sigRangeChangedManually (no follow feedback loop)
+        if self._master_vb is not None:
+            self._master_vb.setXRange(lo, hi, padding=0)
+
     def set_follow(self, on: bool) -> None:
         self._follow = on
 
     def set_window(self, window_s: int, now_ms: int) -> None:
         self._window_s = window_s
         self._mode = window_mode(window_s)
-        self._last_ts_s = now_ms / 1000.0
+        now_s = now_ms / 1000.0
+        self._last_ts_s = now_s
         for s in self._series:
             res = self._model.window(s, window_s, now_ms)
             xs = [t for t, _ in res.line]
             ys = [v for _, v in res.line]
             self._curves[s].setData(xs, ys)
             self._tail[s] = deque(zip(xs, ys))
+        self._apply_x_range(now_s - window_s, now_s)  # frame the selected window
 
     def on_snapshot(self, snapshot: dict) -> None:
-        if self._mode != "raw" or not self._follow:
-            return  # tryb poll odświeża się przez set_window (timer w app.py); brak doklejania 1 Hz
+        # poll windows refresh via set_window (timer in app.py), not by 1 Hz append
+        if self._mode != "raw":
+            return
         ts = snapshot.get("ts")
         if ts is None:
             return
         t_s = ts / 1000.0
         self._last_ts_s = t_s
+        # always accumulate the tail (even when panned away / follow OFF) so panning back
+        # shows continuous data — dropping snapshots here would leave a gap on return
         for s in self._series:
             v = snapshot.get("series", {}).get(s)
             if v is None:
@@ -85,3 +95,5 @@ class HistoryStrip(QtWidgets.QWidget):
             while tail and tail[0][0] < cutoff:
                 tail.popleft()
             self._curves[s].setData([t for t, _ in tail], [y for _, y in tail])
+        if self._follow:  # only slide the view when following; panned-away keeps its range
+            self._apply_x_range(t_s - self._window_s, t_s)
