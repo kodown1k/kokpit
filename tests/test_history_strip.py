@@ -135,6 +135,31 @@ def test_follow_advances_x_range(qapp):
     assert (hi - lo) == pytest.approx(3600, abs=2.0)
 
 
+def test_set_window_y_fits_data(qapp):
+    # Regresja: po set_window oś Y musi objąć dane (np. loadavg ~15..28), nie
+    # domyślne (0,1). disableAutoRange() wyłączał Y -> dane nad widokiem -> pusto.
+    import pytest
+    from kokpit.ui.history_model import HistoryModel
+    from kokpit.ui.widgets.history_strip import HistoryStrip
+
+    now_ms = 1_700_000_000_000
+
+    class FakeStore:
+        def query(self, name, since_ms, until_ms):
+            return [(now_ms - 2000, 15.0), (now_ms - 1000, 20.0), (now_ms, 28.0)]
+        def query_rollup(self, name, since_ms, until_ms):
+            return []
+        def list_series(self, prefix=None):
+            return []
+
+    strip = HistoryStrip(HistoryModel(FakeStore()), ["cpu.loadavg.1"])
+    strip.set_window(3600, now_ms)
+    qapp.processEvents()
+    ymin, ymax = strip._plots["cpu.loadavg.1"].getViewBox().viewRange()[1]
+    assert ymax >= 28 - 1      # góra danych (~28) widoczna
+    assert ymin <= 15 + 1      # dół (~15) widoczny
+
+
 def test_panned_away_accumulates_tail_without_sliding(qapp):
     import pytest
     from kokpit.ui.history_model import HistoryModel
