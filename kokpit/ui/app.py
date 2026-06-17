@@ -28,6 +28,19 @@ def first_metric_key(names: list[str], suffix: str) -> str | None:
     return next((n for n in sorted(names) if n.endswith(suffix)), None)
 
 
+_WIRED_NET_PREFIXES = ("net.en", "net.eth")  # enp*/eno*/ens*/enx* + legacy eth*
+
+
+def primary_net_key(names: list[str]) -> str | None:
+    """Pick the rx_bps series for the primary interface: prefer a wired one
+    (en*/eth*), else fall back to the alphabetically-first. Avoids choosing a
+    wifi/secondary iface (e.g. 'ath0' < 'eth0' alphabetically) on multi-iface hosts."""
+    rx = sorted(n for n in names if n.endswith(".rx_bps"))
+    if not rx:
+        return None
+    return next((n for n in rx if n.startswith(_WIRED_NET_PREFIXES)), rx[0])
+
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, live: LiveClient, model: HistoryModel, gpu_indices: list[int]) -> None:
         super().__init__()
@@ -39,7 +52,7 @@ class MainWindow(QtWidgets.QMainWindow):
         grid = QtWidgets.QGridLayout(central)
 
         # resolve machine-specific series names up front (interface/disk names vary per host)
-        self._net_key = first_metric_key(model.available_series("net."), ".rx_bps")
+        self._net_key = primary_net_key(model.available_series("net."))
         self._disk_key = first_metric_key(model.available_series("disk."), ".read_bps")
         gpu0 = gpu_indices[0] if gpu_indices else 0
 
@@ -98,10 +111,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._set_window(3600)
 
     def _set_window(self, window_s: int) -> None:
+        # explicit window switch is a "show me this window at now" action → re-engage follow.
+        # (NOT done inside set_window itself, so the poll timer's refresh keeps a panned-away view.)
         self._cur_window_s = window_s
         for ws, b in self._win_buttons.items():
             b.setChecked(ws == window_s)
         self._hist.set_window(window_s, _now_ms())
+        self._hist.set_follow(True)
 
     def _jump_to_now(self) -> None:
         self._hist.set_window(self._cur_window_s, _now_ms())

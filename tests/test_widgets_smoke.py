@@ -160,3 +160,27 @@ def test_jump_to_now_reenables_follow(qapp):
     assert win._hist._follow is False
     win._jump_to_now()
     assert win._hist._follow is True
+
+
+def test_primary_net_key_prefers_wired():
+    from kokpit.ui.app import primary_net_key
+    # wired (eth0) preferred even though a wifi iface (ath0) sorts alphabetically first
+    assert primary_net_key(["net.ath0.rx_bps", "net.eth0.rx_bps"]) == "net.eth0.rx_bps"
+    assert primary_net_key(["net.wlp2s0.rx_bps", "net.enp3s0.rx_bps"]) == "net.enp3s0.rx_bps"
+    # no wired iface → alphabetically first
+    assert primary_net_key(["net.wlan0.rx_bps", "net.ath0.rx_bps"]) == "net.ath0.rx_bps"
+    # none / no rx_bps → None
+    assert primary_net_key([]) is None
+    assert primary_net_key(["net.eth0.tx_bps"]) is None
+
+
+def test_set_window_reengages_follow_but_refresh_does_not(qapp):
+    win = _mw()
+    win._hist.set_follow(False)                     # user panned into the past
+    win._set_window(21600)                          # explicit window switch → re-engage follow
+    assert win._hist._follow is True
+    # timer-driven refresh must NOT yank a panned-away view back to following
+    win._hist.set_follow(False)
+    win._cur_window_s = 21600                        # poll window
+    win._refresh_history()
+    assert win._hist._follow is False
