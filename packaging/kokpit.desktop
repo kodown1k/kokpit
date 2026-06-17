@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=kokpit
+Comment=Native system telemetry dashboard
+Exec=kokpit
+Terminal=false
+Categories=System;Monitor;
+StartupNotify=false

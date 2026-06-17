@@ -60,3 +60,12 @@ def test_mainwindow_builds_and_updates(qapp):
     })
     assert win._ram._value_label.text() == "12%"    # 1e9/8e9*100=12.5 → "12%"
     win._on_snapshot({"ts": 2000, "series": {}, "procs": []})   # puste — bez crasha
+
+
+def test_desktop_file_valid():
+    import configparser, os
+    path = os.path.join(os.path.dirname(__file__), "..", "packaging", "kokpit.desktop")
+    cp = configparser.ConfigParser(interpolation=None)
+    cp.read(path)
+    assert cp["Desktop Entry"]["Exec"] == "kokpit"
+    assert cp["Desktop Entry"]["Type"] == "Application"
