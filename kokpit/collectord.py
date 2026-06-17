@@ -61,7 +61,7 @@ def run() -> None:
                 tick(host, store, live, procs, now_ms, dt_s)
             except Exception:
                 log.exception("tick nieudany")
-            if start - last_rollup >= 60.0:
+            if start - last_rollup >= config.ROLLUP_INTERVAL_S:
                 try:
                     with store.conn:
                         store.rollup_1m(now_ms)

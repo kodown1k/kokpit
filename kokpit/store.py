@@ -1,6 +1,8 @@
 import sqlite3
 from pathlib import Path
 
+from kokpit import config
+
 SCHEMA_VERSION = 2
 
 
@@ -55,7 +57,7 @@ class Store:
         sid = self.conn.execute("SELECT id FROM series_dict WHERE name=?", (name,)).fetchone()[0]
         return sid   # do NOT cache here: caching before the caller commits would leave a stale id on rollback
 
-    def write(self, ts_ms: int, samples: dict) -> None:
+    def write(self, ts_ms: int, samples: dict[str, float]) -> None:
         if not samples:
             return
         ids: dict[str, int] = {}
@@ -114,9 +116,10 @@ class Store:
     # --- dopisz w klasie Store, pod query() ---
 
     def rollup_1m(self, now_ms: int) -> None:
-        since = now_ms - 3600_000  # przelicz buckety z ostatniej godziny
+        since = now_ms - config.ROLLUP_LOOKBACK_MS  # przelicz buckety z ostatniej godziny
+        b = config.ROLLUP_BUCKET_MS                 # int z configu -> bezpieczny w f-stringu SQL
         aggs = self.conn.execute(
-            "SELECT (ts/60000)*60000 AS bucket, series_id, MIN(value), MAX(value), AVG(value) "
+            f"SELECT (ts/{b})*{b} AS bucket, series_id, MIN(value), MAX(value), AVG(value) "
             "FROM sample WHERE ts >= ? GROUP BY bucket, series_id",
             (since,),
         ).fetchall()
@@ -125,7 +128,7 @@ class Store:
         # z tego samego wiersza co maksimum. Zastępuje skorelowane podzapytanie
         # (które było O(N^2) — skan tabeli per wiersz).
         last_rows = self.conn.execute(
-            "SELECT (ts/60000)*60000 AS bucket, series_id, value, MAX(ts) "
+            f"SELECT (ts/{b})*{b} AS bucket, series_id, value, MAX(ts) "
             "FROM sample WHERE ts >= ? GROUP BY bucket, series_id",
             (since,),
         ).fetchall()
@@ -142,7 +145,6 @@ class Store:
             )
 
     def prune(self, now_ms: int) -> None:
-        from kokpit import config
         self.conn.execute("DELETE FROM sample WHERE ts < ?", (now_ms - config.RAW_RETENTION_S * 1000,))
         self.conn.execute("DELETE FROM rollup_1m WHERE bucket < ?", (now_ms - config.ROLLUP_RETENTION_S * 1000,))
 
