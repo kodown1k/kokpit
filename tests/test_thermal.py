@@ -32,17 +32,32 @@ def test_thermal_parses_sysfs(tmp_path):
         "temp1": ("", 55000),           # brak label
     })
     out = ThermalSource(root=tmp_path).sample(now_ms=0, dt_s=1.0)
-    assert out["thermal.pkg"] == 97.0
-    assert out["thermal.core.0"] == 91.0
-    assert out["thermal.core.4"] == 90.0
-    assert out["thermal.nvme.0"] == 53.9
-    assert out["thermal.wifi"] == 55.0
     assert out == {
-        "thermal.pkg": 97.0,
-        "thermal.core.0": 91.0,
-        "thermal.core.4": 90.0,
+        "thermal.coretemp.3.pkg": 97.0,
+        "thermal.coretemp.3.core.0": 91.0,
+        "thermal.coretemp.3.core.4": 90.0,
         "thermal.nvme.0": 53.9,
         "thermal.wifi": 55.0,
+    }
+
+
+def test_thermal_dual_socket_no_collision(tmp_path):
+    # dwa chipy coretemp z IDENTYCZNYMI etykietami (Package id 0 / Core 0)
+    _mkchip(tmp_path, 3, "coretemp", {
+        "temp1": ("Package id 0", 60000),
+        "temp2": ("Core 0", 61000),
+    })
+    _mkchip(tmp_path, 5, "coretemp", {
+        "temp1": ("Package id 0", 70000),
+        "temp2": ("Core 0", 71000),
+    })
+    out = ThermalSource(root=tmp_path).sample(now_ms=0, dt_s=1.0)
+    # bez kolizji — numer hwmon rozróżnia gniazda
+    assert out == {
+        "thermal.coretemp.3.pkg": 60.0,
+        "thermal.coretemp.3.core.0": 61.0,
+        "thermal.coretemp.5.pkg": 70.0,
+        "thermal.coretemp.5.core.0": 71.0,
     }
 
 

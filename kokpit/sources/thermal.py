@@ -54,7 +54,7 @@ class ThermalSource:
             if name is None:
                 continue
             if name.startswith("coretemp"):
-                self._read_coretemp(chip, out)
+                self._read_coretemp(chip, _hwmon_num(chip), out)
             elif name.startswith("nvme"):
                 if self._read_nvme(chip, nvme_idx, out):
                     nvme_idx += 1
@@ -63,17 +63,19 @@ class ThermalSource:
         return out
 
     @staticmethod
-    def _read_coretemp(chip: Path, out: Sample) -> None:
+    def _read_coretemp(chip: Path, cid: int, out: Sample) -> None:
+        # cid (numer hwmon) w kluczu, by gniazda na dual-socket się nie nadpisały:
+        # oba chipy coretemp raportują "Package id 0" / "Core 0".
         for inp in sorted(chip.glob("temp*_input")):
             label = _read_text(_label_path(inp)) or ""
             if label.startswith("Package id"):
                 t = _read_temp(inp)
                 if t is not None:
-                    out["thermal.pkg"] = t
+                    out[f"thermal.coretemp.{cid}.pkg"] = t
             elif label.startswith("Core "):
                 t = _read_temp(inp)
                 if t is not None:
-                    out[f"thermal.core.{label.split()[1]}"] = t
+                    out[f"thermal.coretemp.{cid}.core.{label.split()[1]}"] = t
 
     @staticmethod
     def _read_nvme(chip: Path, idx: int, out: Sample) -> bool:
