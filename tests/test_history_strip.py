@@ -32,9 +32,10 @@ def test_history_strip_smoke(qapp):
     strip.set_window(3600, now_ms=3_600_000)            # raw
     assert len(strip._tail["cpu.loadavg.1"]) == 2       # seeded from query (2 points)
     strip.on_snapshot({"ts": 3_600_500, "series": {"cpu.loadavg.1": 3.0}})
-    # raw+follow appends 1, but TAIL_CAP_S pruning evicts the oldest (t=0.0 < cutoff=0.5)
-    assert len(strip._tail["cpu.loadavg.1"]) == 2       # net: still 2 after prune
+    # raw+follow: (3600.5, 3.0) appended; oldest (0.0, 1.0) pruned (cutoff=0.5)
+    assert strip._tail["cpu.loadavg.1"][-1] == (3600.5, 3.0)   # proves append fired
     strip.set_window(86_400, now_ms=90_000_000)         # poll — on_snapshot nie dokleja
     assert len(strip._tail["cpu.loadavg.1"]) == 1       # reseeded from query_rollup (1 point)
     strip.on_snapshot({"ts": 90_000_500, "series": {"cpu.loadavg.1": 4.0}})
-    assert len(strip._tail["cpu.loadavg.1"]) == 1       # poll mode: early-return, no append
+    # poll mode: early-return, tail must still end at rollup-seeded point (ts=3600.0, vavg=4.5)
+    assert strip._tail["cpu.loadavg.1"][-1][0] == 3600.0        # unchanged; no append fired
