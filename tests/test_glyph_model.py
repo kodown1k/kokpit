@@ -272,3 +272,31 @@ def test_baseline_cache_does_not_cache_errors():
     result3 = cache2.get("cpu.loadavg.1")
     assert result3 == (5.0, 2.0, 12, "global")   # still last-known
     assert store_ok.calls == 3                    # retried immediately, not cached
+
+
+def test_display_net_io_kbs():
+    """Net IO 50 kB/s → display 'NET 49' (KB/s, nie MB jak Disk)."""
+    m = gm.GlyphModel()
+    series = {"net.eth0.rx_bps": 50_000.0}     # ~48.8 KB/s → round 49
+    spokes = {s.name: s for s in m.update(series, 1_700_000_000_000, _const_provider({}))}
+    assert spokes["Net IO"].display == "NET 49"
+
+
+def test_display_net_io_idle_still_hides_zero():
+    m = gm.GlyphModel()
+    series = {"net.eth0.rx_bps": 300.0}        # 0.3 KB/s → round 0 → ukryte
+    spokes = {s.name: s for s in m.update(series, 1_700_000_000_000, _const_provider({}))}
+    assert spokes["Net IO"].display == "NET"
+
+
+def test_net_arm_relaxes_after_burst_not_pegged():
+    """Regresja: bursty net tx nie może trzymać ramienia NET na ~1.0 po ustaniu ruchu.
+    Wolne 45s EWMA zostawało rozgrzane po spike'u → ramię „cały czas 100"."""
+    m = gm.GlyphModel()
+    base = (80_000.0, 60_000.0, 21, "circadian")
+    prov = lambda key: base if key == "net.eth0.tx_bps" else None
+    m.update({"net.eth0.tx_bps": 1_000_000.0}, 0, prov)        # pojedynczy burst 1 MB/s
+    last = None
+    for _ in range(20):                                        # potem cisza (idle)
+        last = {s.name: s for s in m.update({"net.eth0.tx_bps": 0.0}, 0, prov)}
+    assert last["Net IO"].score < 0.3                          # ramię opada, nie stoi na ~1.0

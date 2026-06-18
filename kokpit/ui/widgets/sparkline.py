@@ -13,9 +13,10 @@ def _hex(color) -> str:
 
 class Sparkline(QtWidgets.QWidget):
     def __init__(self, title: str, window_s: int = 300, y_range: tuple | None = None,
-                 color=(61, 240, 255), icon: str | None = None) -> None:
+                 color=(61, 240, 255), icon: str | None = None, scale: float = 1.0) -> None:
         super().__init__()
         self._window_s = window_s
+        self._scale = scale
         self._xs: deque[float] = deque()
         self._ys: deque[float] = deque()
         lay = QtWidgets.QVBoxLayout(self)
@@ -44,7 +45,7 @@ class Sparkline(QtWidgets.QWidget):
             return
         now = time.monotonic()
         self._xs.append(now)
-        self._ys.append(float(value))
+        self._ys.append(float(value) * self._scale)
         cutoff = now - self._window_s
         while self._xs and self._xs[0] < cutoff:
             self._xs.popleft()

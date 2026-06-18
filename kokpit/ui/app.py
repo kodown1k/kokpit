@@ -7,16 +7,20 @@ from kokpit import config
 from kokpit.ui.history_model import HistoryModel
 from kokpit.ui.live_client import LiveClient
 from kokpit.ui.theme.icons import neon_pixmap
-from kokpit.ui.theme.palette import NEON_CYAN, NEON_LIME, NEON_MAGENTA, apply_glow, qss_path
+from kokpit.ui.theme.palette import (
+    NEON_CYAN, NEON_LIME, NEON_MAGENTA, app_icon_path, apply_glow, qss_path,
+)
 from kokpit.ui.widgets.core_ring_grid import CoreRingGrid
-from kokpit.ui.widgets.gauge import Gauge
 from kokpit.ui.widgets.gpu_panel import GpuPanel, expected_gpu_indices
 from kokpit.ui.widgets.hero_column import HeroColumn
 from kokpit.ui.widgets.history_strip import HistoryStrip, window_mode
 from kokpit.ui.glyph_model import BaselineCache, GlyphModel
 from kokpit.ui.widgets.gpu_proc_table import GpuProcTable
 from kokpit.ui.widgets.proc_table import ProcTable
+from kokpit.ui.widgets.disk_usage import DiskUsage
+from kokpit.ui.widgets.dual_ring_gauge import DualRingGauge
 from kokpit.ui.widgets.sparkline import Sparkline
+from kokpit.ui.widgets.sysinfo import SysInfo
 from kokpit.ui.widgets.vital_glyph import VitalGlyph
 
 
@@ -71,6 +75,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, live: LiveClient, model: HistoryModel, gpu_indices: list[int]) -> None:
         super().__init__()
         self.setWindowTitle("kokpit")
+        self.setWindowIcon(QtGui.QIcon(app_icon_path()))
         self._live = live
         self._cur_window_s = 3600
         central = QtWidgets.QWidget()
@@ -79,14 +84,22 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # resolve machine-specific series names up front (interface/disk names vary per host)
         self._net_key = primary_net_key(model.available_series("net."))
-        self._disk_key = first_metric_key(model.available_series("disk."), ".read_bps")
         gpu0 = gpu_indices[0] if gpu_indices else 0
+
+        # PCI adapter (wifi) + płyta główna (chipset/ACPI) — wewn. ring spada na najgorętszy
+        # dysk NVMe, gdy host nie wystawia sensora płyty (np. brak acpitz/pch).
+        thermal_series = set(model.available_series("thermal."))
+        self._has_board = "thermal.board" in thermal_series
+        self._temps = DualRingGauge(
+            "TEMPS", "PCI", "MB" if self._has_board else "SSD",
+            NEON_MAGENTA, NEON_LIME, high=75, crit=90)
 
         self._hero = HeroColumn(gpu0)
         self._core = CoreRingGrid()
-        self._swap = Gauge("SWAP", " MB", high=4096, crit=8192, accent=NEON_CYAN)
-        self._net = Sparkline("NET rx", window_s=120, color=(61, 240, 255), icon="net-rx")
-        self._disk = Sparkline("DISK r", window_s=120, color=(57, 255, 20), icon="disk-read")
+        self._sysinfo = SysInfo()
+        self._net = Sparkline("NET rx (KB/s)", window_s=120, color=(61, 240, 255),
+                              icon="net-rx", scale=1.0 / 1024)
+        self._disk_usage = DiskUsage()
         self._procs = ProcTable()
         self._gpu_procs = GpuProcTable()
         self._gpu_extra = GpuPanel(gpu_indices[1:]) if len(gpu_indices) > 1 else None
@@ -95,9 +108,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._baseline = BaselineCache(model.store, now_fn=_now_ms)
 
         hist_series = ["cpu.loadavg.1", f"gpu.{gpu0}.util", "mem.used"]
+        hist_formats = {
+            "cpu.loadavg.1": ("CPU load (1m)", 1.0),
+            f"gpu.{gpu0}.util": (f"GPU{gpu0} util (%)", 1.0),
+            "mem.used": ("MEM used (GB)", 1e-9),
+        }
         if self._net_key:
             hist_series.append(self._net_key)
-        self._hist = HistoryStrip(model, hist_series)
+            hist_formats[self._net_key] = ("NET rx (KB/s)", 1.0 / 1024)
+        self._hist = HistoryStrip(model, hist_series, formats=hist_formats)
 
         self._status = QtWidgets.QLabel("disconnected")
         self._status.setObjectName("statusBar")
@@ -129,36 +148,58 @@ class MainWindow(QtWidgets.QMainWindow):
         self._pulse.valueChanged.connect(lambda v: self._live_glow.setBlurRadius(float(v)))
         self._pulse.start()
 
-        # kolumna I/O (NET / DISK / SWAP [+ dodatkowe GPU jeśli >1])
-        io = QtWidgets.QWidget()
-        io_lay = QtWidgets.QVBoxLayout(io)
-        io_lay.setContentsMargins(0, 0, 0, 0)
-        io_lay.setSpacing(4)
-        io_lay.addWidget(self._net)
-        io_lay.addWidget(self._disk)
-        io_lay.addWidget(self._swap)
+        # ZONA 1 — VITALS + SYSTEM (lewa): małe ringi util‖temp, niżej panel sysinfo
+        zone_vitals = QtWidgets.QWidget()
+        zv = QtWidgets.QVBoxLayout(zone_vitals)
+        zv.setContentsMargins(0, 0, 0, 0)
+        zv.setSpacing(6)
+        zv.addWidget(_titled("cpu", NEON_CYAN, "CORES", self._core))
         if self._gpu_extra is not None:
-            io_lay.addWidget(self._gpu_extra)
+            zv.addWidget(self._gpu_extra)
+        zv.addWidget(self._sysinfo, 1)
 
-        # layout B: hero-kolumna z lewej (span), reszta po prawej, glyph hero z prawej
-        grid.addWidget(self._hero, 0, 0, 6, 1)
-        grid.addWidget(self._core, 0, 1, 2, 2)
-        grid.addWidget(io, 0, 3, 2, 1)
-        grid.addWidget(self._hist, 2, 1, 2, 3)
+        # ZONA 2 — ANOMALY RADAR (środek): glyph wyśrodkowany jako bohater, dostaje sceny
+        zone_glyph = QtWidgets.QWidget()
+        zg = QtWidgets.QVBoxLayout(zone_glyph)
+        zg.setContentsMargins(0, 0, 0, 0)
+        zg.addWidget(self._glyph, 1)
+
+        # ZONA 3 — I/O & STORAGE (prawa): sparkline'y NET/DISK jeden pod drugim + zajętość
+        zone_io = QtWidgets.QWidget()
+        zi = QtWidgets.QVBoxLayout(zone_io)
+        zi.setContentsMargins(0, 0, 0, 0)
+        zi.setSpacing(6)
+        zi.addWidget(self._net, 1)
+        zi.addWidget(self._disk_usage, 2)   # ma własny nagłówek „DISK USAGE"
+
         # PROCESSES (top-CPU) ‖ GPU PROCESSES (NVML, top-VRAM) — resizable splitter
         proc_split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         proc_split.addWidget(_titled("processes", NEON_CYAN, "PROCESSES", self._procs))
         proc_split.addWidget(_titled("gpu", NEON_MAGENTA, "GPU PROCESSES", self._gpu_procs))
         proc_split.setStretchFactor(0, 3)   # PROCESSES (CPU)
         proc_split.setStretchFactor(1, 4)   # GPU-tabela ma więcej kolumn → szersza (proporcja 3:4)
-        grid.addWidget(proc_split, 4, 1, 1, 3)
-        grid.addWidget(ctrl_w, 5, 1, 1, 3)
-        grid.addWidget(self._glyph, 0, 4, 6, 1)   # Vital-Signs Glyph: right-side hero column
-        grid.addWidget(self._status, 6, 0, 1, 5)
-        grid.setColumnStretch(0, 0)
-        for _c in (1, 2, 3):
-            grid.setColumnStretch(_c, 1)
-        grid.setColumnStretch(4, 1)
+
+        # bento: pas hero (5 kafli) → pasmo 3 stref → history (pełna szer.) → tabele → kontrolki
+        top = QtWidgets.QWidget()
+        top_lay = QtWidgets.QHBoxLayout(top)
+        top_lay.setContentsMargins(0, 0, 0, 0)
+        top_lay.setSpacing(8)
+        top_lay.addWidget(self._hero, 4)
+        top_lay.addWidget(self._temps, 1)
+        grid.addWidget(top, 0, 0, 1, 3)
+        grid.addWidget(zone_vitals, 1, 0)
+        grid.addWidget(zone_glyph, 1, 1)
+        grid.addWidget(zone_io, 1, 2)
+        grid.addWidget(self._hist, 2, 0, 1, 3)
+        grid.addWidget(proc_split, 3, 0, 1, 3)
+        grid.addWidget(ctrl_w, 4, 0, 1, 3)
+        grid.addWidget(self._status, 5, 0, 1, 3)
+        grid.setColumnStretch(0, 5)    # vitals + system
+        grid.setColumnStretch(1, 5)    # glyph — bohater dostaje środek
+        grid.setColumnStretch(2, 4)    # I/O stos
+        grid.setRowStretch(1, 4)       # pasmo 3 stref (główna scena)
+        grid.setRowStretch(2, 2)       # history
+        grid.setRowStretch(3, 2)       # tabele
 
         live.snapshot.connect(self._on_snapshot)   # AutoConnection → wątek GUI
         live.state.connect(self._on_state)
@@ -198,12 +239,18 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_snapshot(self, snap: dict) -> None:
         s = snap.get("series", {})
         self._hero.update_snapshot(snap)
+        # PCI adapter (wifi) na zewn. ringu; płyta (board) lub najgorętszy NVMe na wewn.
+        self._temps.set_outer(s.get("thermal.wifi"))
+        board = s.get("thermal.board")
+        if board is None:
+            nvme = [v for k, v in s.items() if k.startswith("thermal.nvme.") and v is not None]
+            board = max(nvme) if nvme else None
+        self._temps.set_inner(board)
         self._core.set_util(s)
         self._core.set_temp(s)
-        sw = s.get("swap.used")
-        self._swap.set_value(None if sw is None else sw / (1024 * 1024))
+        self._sysinfo.refresh()
+        self._disk_usage.refresh()
         self._net.push(s.get(self._net_key) if self._net_key else None)
-        self._disk.push(s.get(self._disk_key) if self._disk_key else None)
         if self._gpu_extra is not None:
             self._gpu_extra.update_snapshot(snap)
         self._procs.set_rows(snap.get("procs", []))
@@ -215,6 +262,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
 def main() -> int:
     app = QtWidgets.QApplication(sys.argv)
+    app.setWindowIcon(QtGui.QIcon(app_icon_path()))   # ikona aplikacji (okno/pasek/dock)
     try:
         with open(qss_path()) as fh:
             app.setStyleSheet(fh.read())

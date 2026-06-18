@@ -13,6 +13,7 @@ CELL = 17
 GAP = 7
 PAD = 2
 LABEL_H = 16
+SECTION_GAP = 22   # odstęp poziomy między blokiem THREAD UTIL a CORE TEMP
 
 
 def ring_rects(n: int, cols: int, cell: int, gap: int, x0: int = 0, y0: int = 0):
@@ -36,8 +37,11 @@ class CoreRingGrid(QtWidgets.QWidget):
         self._temp_keys: list[str] = []
         self._temp_fracs: dict[str, float | None] = {}
         util_rows = (UTIL_N + UTIL_COLS - 1) // UTIL_COLS
-        self.setMinimumWidth(UTIL_COLS * (CELL + GAP) + 2 * PAD)
-        self.setMinimumHeight(2 * LABEL_H + (util_rows + 4) * (CELL + GAP) + 2 * PAD)
+        util_w = UTIL_COLS * (CELL + GAP)
+        temp_w = TEMP_COLS * (CELL + GAP)
+        # util ‖ temp obok siebie → szerokość = suma bloków, wysokość = wyższy z bloków
+        self.setMinimumWidth(PAD + util_w + SECTION_GAP + temp_w + PAD)
+        self.setMinimumHeight(LABEL_H + (util_rows + 1) * (CELL + GAP) + 2 * PAD)
 
     def set_util(self, series: dict) -> None:
         self._util = [_util_frac(series.get(k)) for k in thread_util_keys(UTIL_N)]
@@ -50,8 +54,8 @@ class CoreRingGrid(QtWidgets.QWidget):
         self._temp_fracs = {k: _temp_frac(series.get(k)) for k in self._temp_keys}
         self.update()
 
-    def _paint_section(self, p: QtGui.QPainter, fracs, cols, y0, ramp) -> int:
-        rects = ring_rects(len(fracs), cols, CELL, GAP, x0=PAD, y0=y0)
+    def _paint_section(self, p: QtGui.QPainter, fracs, cols, y0, ramp, x0=PAD) -> int:
+        rects = ring_rects(len(fracs), cols, CELL, GAP, x0=x0, y0=y0)
         for (x, y, w, h), frac in zip(rects, fracs):
             r = QtCore.QRectF(x, y, w, h)
             p.setPen(QtGui.QPen(QtGui.QColor("#16263a"), 2))
@@ -69,12 +73,11 @@ class CoreRingGrid(QtWidgets.QWidget):
         f.setBold(True)
         f.setPointSize(8)
         p.setFont(f)
+        temp_x0 = PAD + UTIL_COLS * (CELL + GAP) + SECTION_GAP   # blok temp na prawo od util
         p.setPen(QtGui.QColor("#5fb8d6"))
         p.drawText(PAD, 12, "THREAD UTIL (32)")
-        y = self._paint_section(p, self._util, UTIL_COLS, LABEL_H, util_rgb)
-        y += LABEL_H
-        p.setPen(QtGui.QColor("#5fb8d6"))
-        p.drawText(PAD, y - 4, f"CORE TEMP ({len(self._temp_keys)})")
+        p.drawText(temp_x0, 12, f"CORE TEMP ({len(self._temp_keys)})")
+        self._paint_section(p, self._util, UTIL_COLS, LABEL_H, util_rgb)
         self._paint_section(p, [self._temp_fracs.get(k) for k in self._temp_keys],
-                            TEMP_COLS, y, heat_rgb)
+                            TEMP_COLS, LABEL_H, heat_rgb, x0=temp_x0)
         p.end()

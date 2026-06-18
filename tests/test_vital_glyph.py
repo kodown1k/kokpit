@@ -23,16 +23,16 @@ def test_label_radius_clamp_at_minimum_size(qapp):
     )
 
 
-def test_label_radius_settles_outside_polygon_when_room(qapp):
-    """When the widget is large enough, labels sit at a fixed radius just
-    outside the (fixed-size) polygon — and that is larger than the clamped
-    value forced at minimum size. Proves both `min` branches are reachable."""
+def test_label_radius_scales_with_widget_and_stays_in_bounds(qapp):
+    """Responsywna gwiazda: etykiety rosną z widgetem (większy → dalej), ale zawsze
+    mieszczą się w granicach (≤ half-8) i siedzą poza maksymalnym ramieniem."""
     from kokpit.ui.widgets.vital_glyph import VitalGlyph
     w = VitalGlyph()
-    outside_polygon = w.R_BASE + w.R_SPAN + 14.0
-    assert w._label_radius(400.0) == outside_polygon          # room → fixed offset branch
-    assert w._label_radius(140.0) == 140.0 - 6.0              # cramped → clamp branch
-    assert w._label_radius(400.0) > w._label_radius(140.0)
+    assert w._label_radius(400.0) > w._label_radius(140.0)    # skaluje się z rozmiarem
+    for half in (140.0, 250.0, 400.0):
+        assert w._label_radius(half) <= half - 8.0            # w granicach widgetu
+        max_arm = (w.R_BASE + w.R_SPAN) * w._scale(half)      # poza najdłuższym ramieniem
+        assert w._label_radius(half) >= max_arm
 
 
 def test_set_spokes_renders_without_crash(qapp):
@@ -240,3 +240,23 @@ def test_set_spokes_count_change_clears_trail(qapp):
     img.fill(0)
     w.render(img)   # nie crashuje mimo niedawnego 9-szprychowego trailu
     assert img.width() == 200
+
+
+def test_axis_rgb_distinct_per_parameter():
+    from kokpit.ui.widgets.vital_glyph import axis_rgb, AXIS_RGB
+    # każdy parametr ma własny, unikalny kolor bazowy
+    colors = [axis_rgb(n) for n in SPOKE_NAMES]
+    assert len(set(colors)) == len(SPOKE_NAMES)
+    assert axis_rgb("CPU") == AXIS_RGB["CPU"]
+    assert axis_rgb("nieznane") == axis_rgb("nieznane")   # fallback stabilny
+
+
+def test_axis_qcolor_brightness_scales_with_score(qapp):
+    from kokpit.ui.widgets.vital_glyph import axis_qcolor, axis_rgb
+    r, g, b = axis_rgb("CPU")
+    full = axis_qcolor("CPU", 1.0)
+    pale = axis_qcolor("CPU", 0.0)
+    assert (full.red(), full.green(), full.blue()) == (r, g, b)   # 100 → pełny neon
+    assert full.alpha() == 255
+    assert pale.red() < r and pale.green() < g                     # 0 → przygaszone (blado)
+    assert pale.alpha() < full.alpha()

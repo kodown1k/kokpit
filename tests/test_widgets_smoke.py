@@ -93,15 +93,13 @@ def test_mainwindow_dynamic_net_disk_keys(qapp):
     live = LiveClient("/nonexistent.sock")
     win = MainWindow(live, HistoryModel(FakeStore()), gpu_indices=[0])
     assert win._net_key == "net.enp3s0.rx_bps"
-    assert win._disk_key == "disk.sda.read_bps"
-    # Snapshot with the real interface names — net sparkline should update without crash
+    # Snapshot with the real interface name — net sparkline should update without crash
     win._on_snapshot({
         "ts": 1000,
-        "series": {"net.enp3s0.rx_bps": 1e6, "disk.sda.read_bps": 2e6},
+        "series": {"net.enp3s0.rx_bps": 1e6},
         "procs": [],
     })
     assert len(win._net._ys) == 1
-    assert len(win._disk._ys) == 1
 
 
 def test_desktop_file_valid():

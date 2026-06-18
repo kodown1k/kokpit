@@ -1,6 +1,6 @@
 import pytest
 
-from kokpit.ui.theme.icons import ICON_NAMES, neon_pixmap, recolored_svg
+from kokpit.ui.theme.icons import ICON_NAMES, ICONS_DIR, neon_pixmap, recolored_svg
 
 
 def test_recolor_swaps_currentcolor():
@@ -9,10 +9,12 @@ def test_recolor_swaps_currentcolor():
     assert "currentColor" not in s
 
 
-def test_all_icon_names_load():
-    assert len(ICON_NAMES) == 11
+def test_icon_registry_matches_svg_files():
+    # invariant (nie magiczna liczba): rejestr ↔ pliki .svg to bijekcja —
+    # łapie i sierotę bez wpisu, i wpis bez pliku; dodanie ikony wymaga obu.
     for n in ICON_NAMES:
-        assert recolored_svg(n, "#ffffff")     # nie rzuca
+        assert recolored_svg(n, "#ffffff")     # każda zarejestrowana ikona ma plik SVG
+    assert {p.stem for p in ICONS_DIR.glob("*.svg")} == set(ICON_NAMES)
 
 
 def test_bad_icon_name_raises():

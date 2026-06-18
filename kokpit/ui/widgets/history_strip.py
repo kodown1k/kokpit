@@ -20,10 +20,13 @@ def window_mode(window_s: int) -> str:
 
 
 class HistoryStrip(QtWidgets.QWidget):
-    def __init__(self, model: HistoryModel, series: list[str]) -> None:
+    def __init__(self, model: HistoryModel, series: list[str],
+                 formats: dict[str, tuple[str, float]] | None = None) -> None:
         super().__init__()
         self._model = model
         self._series = series
+        # per-seria (etykieta, skala) — np. mem.used → ("MEM used (GB)", 1e-9)
+        self._formats = formats or {}
         self._follow = True
         self._window_s = 3600
         self._mode = "raw"
@@ -33,11 +36,13 @@ class HistoryStrip(QtWidgets.QWidget):
         lay.setContentsMargins(2, 2, 2, 2)
         self._plots = {}
         self._curves = {}
+        self._labels = {}
         first_plot = None
         for idx, s in enumerate(series):
             p = make_history_plot()
-            label = QtWidgets.QLabel(s)
+            label = QtWidgets.QLabel(self._formats.get(s, (s, 1.0))[0])
             label.setObjectName("tileTitle")
+            self._labels[s] = label
             lay.addWidget(label)
             lay.addWidget(p)
             self._plots[s] = p
@@ -64,6 +69,9 @@ class HistoryStrip(QtWidgets.QWidget):
     def set_follow(self, on: bool) -> None:
         self._follow = on
 
+    def _scale(self, s: str) -> float:
+        return self._formats.get(s, (s, 1.0))[1]
+
     def set_window(self, window_s: int, now_ms: int) -> None:
         self._window_s = window_s
         self._mode = window_mode(window_s)
@@ -71,8 +79,9 @@ class HistoryStrip(QtWidgets.QWidget):
         self._last_ts_s = now_s
         for s in self._series:
             res = self._model.window(s, window_s, now_ms)
+            sc = self._scale(s)
             xs = [t for t, _ in res.line]
-            ys = [v for _, v in res.line]
+            ys = [v * sc for _, v in res.line]
             self._curves[s].setData(xs, ys)
             self._tail[s] = deque(zip(xs, ys))
         self._apply_x_range(now_s - window_s, now_s)  # frame the selected window
@@ -93,7 +102,7 @@ class HistoryStrip(QtWidgets.QWidget):
             if v is None:
                 continue
             tail = self._tail[s]
-            tail.append((t_s, v))
+            tail.append((t_s, v * self._scale(s)))
             cutoff = t_s - TAIL_CAP_S
             while tail and tail[0][0] < cutoff:
                 tail.popleft()

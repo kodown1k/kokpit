@@ -97,3 +97,7 @@ def apply_glow(widget: QtWidgets.QWidget, color, radius: float = 16.0):
 
 def qss_path() -> str:
     return os.path.join(os.path.dirname(__file__), "neon.qss")
+
+
+def app_icon_path() -> str:
+    return os.path.join(os.path.dirname(__file__), "app-icon.png")

@@ -33,9 +33,10 @@ def spike_score(value_sm: float, baseline, proximity) -> float:
     return max(z_norm(value_sm, baseline), pp)
 
 
-def ewma_alpha() -> float:
-    """α dla EWMA przy próbkowaniu 1 Hz i oknie LIVE_EWMA_S (half-life ≈ okno)."""
-    return 1.0 - math.exp(-1.0 / config.LIVE_EWMA_S)
+def ewma_alpha(window_s: float | None = None) -> float:
+    """α dla EWMA przy próbkowaniu 1 Hz i oknie `window_s` (half-life ≈ okno).
+    Domyślnie LIVE_EWMA_S."""
+    return 1.0 - math.exp(-1.0 / (config.LIVE_EWMA_S if window_s is None else window_s))
 
 
 def ewma(prev, x: float, alpha: float) -> float:
@@ -122,9 +123,12 @@ def _fmt_display(name: str, best_val: Optional[float], prox: Optional[float]) ->
         return f"{code} {round(best_val)}%"
     if name in ("CPU temp", "GPU temp"):
         return f"{code} {round(best_val)}°"
-    if name in ("Disk IO", "Net IO"):
+    if name == "Disk IO":
         mb = round(best_val / 1e6)
-        return code if mb == 0 else f"{code} {mb}"   # ukryj "DISK 0"/"NET 0" przy idle
+        return code if mb == 0 else f"{code} {mb}"   # MB/s; ukryj "DISK 0" przy idle
+    if name == "Net IO":
+        kb = round(best_val / 1024)
+        return code if kb == 0 else f"{code} {kb}"   # KB/s (domowe łącze < 1 MB/s); ukryj "NET 0"
     if name == "Swap":
         return f"{code} {round(best_val / 1048576)}M"
     if name == "CPU":
@@ -164,6 +168,10 @@ _SPOKES = (
 
 SPOKE_NAMES = [name for name, _z, _p in _SPOKES]
 
+# Bursty liczniki IO: krótkie okno EWMA, żeby ramię śledziło bieżący throughput
+# i opadało po spike'u (zamiast trzymać się ~1.0 z nieświeżej, rozgrzanej średniej).
+_FAST_EWMA_SPOKES = {"Net IO", "Disk IO"}
+
 
 class GlyphModel:
     """Stanowy (EWMA per-seria) builder ramion glifu. Zero Qt."""
@@ -171,6 +179,7 @@ class GlyphModel:
     def __init__(self) -> None:
         self._sm: dict = {}                 # seria → wygładzona live
         self._alpha = ewma_alpha()
+        self._alpha_fast = ewma_alpha(config.FAST_EWMA_S)
         self.calibrating = True
 
     def update(self, series: dict, _now_ms: int, provider) -> list:
@@ -178,6 +187,7 @@ class GlyphModel:
         any_baseline = False
         spokes = []
         for name, z_members, proximity in _SPOKES:
+            alpha = self._alpha_fast if name in _FAST_EWMA_SPOKES else self._alpha
             best_z = 0.0
             best_val = None
             best_tier = None
@@ -185,7 +195,7 @@ class GlyphModel:
                 v = series.get(m)
                 if v is None:
                     continue
-                self._sm[m] = ewma(self._sm.get(m), v, self._alpha)
+                self._sm[m] = ewma(self._sm.get(m), v, alpha)
                 base = provider(m)
                 if base is not None:
                     any_baseline = True
