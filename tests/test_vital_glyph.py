@@ -260,3 +260,40 @@ def test_axis_qcolor_brightness_scales_with_score(qapp):
     assert full.alpha() == 255
     assert pale.red() < r and pale.green() < g                     # 0 → przygaszone (blado)
     assert pale.alpha() < full.alpha()
+
+
+# --- Task 19: arm hit-test + drag-to-cap ---
+
+import math
+from PySide6 import QtCore
+from kokpit.ui.glyph_model import SpokeScore
+
+
+def _spokes():
+    return [SpokeScore(n, 0.5, 1.0, "circadian")
+            for n in ["CPU", "RAM", "Swap", "GPU", "VRAM", "CPU temp", "GPU temp", "Disk IO", "Net IO"]]
+
+
+def test_arm_at_top_is_first_spoke(qapp):
+    from kokpit.ui.widgets.vital_glyph import VitalGlyph
+    g = VitalGlyph()
+    g.resize(300, 300)
+    g.set_spokes(_spokes(), calibrating=False)
+    cx, cy = 150, 150
+    # straight up from centre = spoke 0 (angle -pi/2)
+    pos = QtCore.QPointF(cx, cy - 60)
+    assert g.arm_at(pos) == 0
+
+
+def test_cap_requested_emitted_on_release(qapp):
+    from kokpit.ui.widgets.vital_glyph import VitalGlyph
+    g = VitalGlyph()
+    g.resize(300, 300)
+    g.set_spokes(_spokes(), calibrating=False)
+    seen = []
+    g.capRequested.connect(lambda name, frac: seen.append((name, frac)))
+    # simulate a drag on spoke 0 ending near the base radius (low fraction = strong cap)
+    g._drag_idx = 0
+    g._emit_cap(QtCore.QPointF(150, 150 - g.R_BASE - 5))
+    assert seen and seen[0][0] == "CPU"
+    assert 0.0 <= seen[0][1] <= 0.3
