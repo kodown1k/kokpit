@@ -34,3 +34,35 @@ DEFAULT_POLICIES = [
                 "ttl_s": config.ENVELOPE_DEFAULT_TTL_S},
     ),
 ]
+
+
+# axis name -> series the baseline is keyed on (mirror glyph_model spokes)
+_AXIS_SERIES = {
+    "GPU temp": None,   # resolved by caller via baseline_for on the spoke's series
+    "CPU temp": None,
+}
+
+
+class EnvelopeEvaluator:
+    def __init__(self, policies, debounce_s, now_fn) -> None:
+        self._policies = policies
+        self._debounce_ms = debounce_s * 1000
+        self._now = now_fn
+        self._breach_since: dict[str, float] = {}   # axis -> first-breach ms
+        self._fired: set[str] = set()               # axis episodes already actioned
+
+    def evaluate(self, spokes, baseline_for) -> list[dict]:
+        by_axis = {s.name: s for s in spokes}
+        out = []
+        for pol in self._policies:
+            spoke = by_axis.get(pol.axis)
+            base = baseline_for(pol.axis) if spoke is not None else None
+            if spoke is not None and breach(pol, spoke, base):
+                start = self._breach_since.setdefault(pol.axis, self._now())
+                if pol.axis not in self._fired and self._now() - start >= self._debounce_ms:
+                    out.append(pol.action)
+                    self._fired.add(pol.axis)
+            else:
+                self._breach_since.pop(pol.axis, None)
+                self._fired.discard(pol.axis)
+        return out
