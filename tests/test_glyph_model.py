@@ -74,3 +74,4 @@ def test_max_temp_ratio():
     pred = lambda k: k.startswith("thermal.coretemp.") and k.endswith(".pkg")
     assert gm.max_temp_ratio(s, pred, 95.0) == 1.0     # 95/95
     assert gm.max_temp_ratio({"x": 1.0}, pred, 95.0) is None
+    assert gm.max_temp_ratio({"thermal.coretemp.0.pkg": 95.0}, pred, 0.0) is None  # limit=0 → None

@@ -76,5 +76,7 @@ def gpu_vram_ratio(series: dict):
 
 
 def max_temp_ratio(series: dict, pred, limit: float):
+    if not limit:
+        return None
     vals = [v / limit for k, v in series.items() if pred(k) and v is not None]
     return max(vals) if vals else None
