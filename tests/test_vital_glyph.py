@@ -9,6 +9,27 @@ def test_vertex_radius_monotonic(qapp):
     assert w.vertex_radius(0.0) < w.vertex_radius(0.5) < w.vertex_radius(1.0)
 
 
+def test_label_radius_clamp_at_minimum_size(qapp):
+    """_label_radius must keep labels inside widget bounds at min half-width (140px)."""
+    from kokpit.ui.widgets.vital_glyph import VitalGlyph
+    w = VitalGlyph()
+    half_min = 140.0   # half of minimum widget size 280px
+    assert w._label_radius(half_min) <= half_min - 6.0, (
+        f"label_r overflows at min size: {w._label_radius(half_min)} > {half_min - 6.0}"
+    )
+
+
+def test_label_radius_scales_at_large_size(qapp):
+    """_label_radius scales up beyond the clamped value at large widget sizes."""
+    from kokpit.ui.widgets.vital_glyph import VitalGlyph
+    w = VitalGlyph()
+    half_small = 140.0
+    half_large = 400.0
+    assert w._label_radius(half_large) > w._label_radius(half_small), (
+        "label_r should increase for larger widget halves"
+    )
+
+
 def test_set_spokes_renders_without_crash(qapp):
     from PySide6 import QtGui
     from kokpit.ui.widgets.vital_glyph import VitalGlyph
@@ -46,7 +67,7 @@ def test_render_with_display_strings_no_crash(qapp):
         SpokeScore("RAM", 0.71, 71.0, None, "RAM 71%"),
         SpokeScore("Swap", 0.0, 0.0, None, "SWP 0M"),
         SpokeScore("GPU", 0.73, 73.0, None, "GPU 73%"),
-        SpokeScore("VRAM", 0.4, None, None, "VRAM 40%"),
+        SpokeScore("VRAM", 0.4, None, None, "VRAM"),
         SpokeScore("CPU temp", 0.9, 87.0, None, "CPU° 87°"),
         SpokeScore("GPU temp", 0.5, 70.0, None, "GPU° 70°"),
         SpokeScore("Disk IO", 0.1, 8_000_000.0, None, "DISK 8"),
@@ -106,7 +127,7 @@ def test_render_spiked_neon_no_crash(qapp):
         SpokeScore("RAM", 0.85, 85.0, None, "RAM 85%"),
         SpokeScore("Swap", 0.0, 0.0, None, "SWP 0M"),
         SpokeScore("GPU", 0.7, 70.0, None, "GPU 70%"),
-        SpokeScore("VRAM", 0.6, 60.0, None, "VRAM 60%"),
+        SpokeScore("VRAM", 0.6, None, None, "VRAM"),
         SpokeScore("CPU temp", 0.95, 92.0, None, "CPU° 92°"),
         SpokeScore("GPU temp", 0.55, 71.0, None, "GPU° 71°"),
         SpokeScore("Disk IO", 0.1, 8_000_000.0, None, "DISK 8"),

@@ -36,6 +36,10 @@ class VitalGlyph(QtWidgets.QWidget):
         ang = -math.pi / 2 + 2 * math.pi * i / n     # start u góry, zgodnie z zegarem
         return QtCore.QPointF(cx + r * math.cos(ang), cy + r * math.sin(ang))
 
+    def _label_radius(self, half: float) -> float:
+        """Promień do wyświetlania etykiet ramion — zaciskany, by mieścić się w widgecie."""
+        return min((self.R_BASE + self.R_SPAN) * (half / 130.0) + 14.0, half - 6.0)
+
     def paintEvent(self, _event) -> None:
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing)
@@ -87,7 +91,7 @@ class VitalGlyph(QtWidgets.QWidget):
                 p.drawEllipse(v, 5.0, 5.0)
         # podpisy ramion: kod osi + wartość na stałym promieniu poza max ramieniem
         half = min(cx, cy)
-        label_r = (self.R_BASE + self.R_SPAN) * (half / 130.0) + 14.0
+        label_r = self._label_radius(half)
         lf = p.font()
         lf.setPointSize(8)
         lf.setBold(False)
