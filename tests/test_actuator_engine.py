@@ -1,3 +1,5 @@
+import threading
+
 from kokpit.actuator.audit import AuditLog
 from kokpit.actuator.engine import Actuator
 from kokpit.actuator.levers import Lever
@@ -57,3 +59,26 @@ def test_revert_all(tmp_path):
     act.apply("spy", {"pid": 2}, {}, ttl_s=None)
     assert act.revert_all() == 2
     assert len(spy.reverted) == 2
+
+
+def test_concurrent_apply_unique_tokens_and_consistent_count(tmp_path):
+    """Concurrent apply() calls from N threads produce unique tokens and consistent _active count."""
+    N = 20
+    act, spy, _ = make(tmp_path)
+    tokens = []
+    lock = threading.Lock()
+
+    def worker():
+        tok = act.apply("spy", {}, {}, ttl_s=None)
+        with lock:
+            tokens.append(tok)
+
+    threads = [threading.Thread(target=worker) for _ in range(N)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(tokens) == N, f"Expected {N} tokens, got {len(tokens)}"
+    assert len(set(tokens)) == N, "Tokens are not unique — race in _seq"
+    assert len(act.list_active()) == N, "list_active count inconsistent after concurrent applies"
