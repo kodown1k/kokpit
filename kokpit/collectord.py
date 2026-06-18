@@ -50,7 +50,7 @@ def run() -> None:
     live = LiveServer(config.socket_path())
     live.start()
     host, gpu = build_host()
-    procs = ProcCollector(nvml=gpu._nvml)   # ten sam uchwyt NVML co GpuSource
+    procs = ProcCollector(nvml=gpu.nvml)   # ten sam uchwyt NVML co GpuSource
     period = 1.0 / config.SAMPLE_HZ
     last_mono: float | None = None
     last_rollup = 0.0

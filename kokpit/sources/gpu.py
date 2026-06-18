@@ -19,6 +19,11 @@ class GpuSource:
             log.warning("NVML niedostępne — GPU pominięte")
             self._nvml = None
 
+    @property
+    def nvml(self):
+        """Publiczny uchwyt NVML do współdzielenia (np. z ProcCollector). None gdy niedostępny."""
+        return self._nvml
+
     def sample(self, now_ms: int, dt_s: float) -> Sample:
         n = self._nvml
         if n is None:
