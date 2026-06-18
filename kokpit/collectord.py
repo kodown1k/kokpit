@@ -25,17 +25,21 @@ def _handle_sigterm(signum, frame) -> None:
     _shutdown_requested = True
 
 
-def build_host() -> LocalHost:
-    return LocalHost([
+def build_host() -> tuple[LocalHost, GpuSource]:
+    gpu = GpuSource()
+    host = LocalHost([
         CpuSource(), MemorySource(), NetSource(),
-        DiskSource(), ThermalSource(), GpuSource(),
+        DiskSource(), ThermalSource(), gpu,
     ])
+    return host, gpu
 
 
 def tick(host, store, live, procs, now_ms: int, dt_s: float) -> None:
     series = host.collect(now_ms, dt_s)
     store.write(now_ms, series)
-    live.publish({"ts": now_ms, "series": series, "procs": procs.top()})
+    proc_rows, gpu_rows = procs.snapshot()
+    live.publish({"ts": now_ms, "series": series,
+                  "procs": proc_rows, "gpu_procs": gpu_rows})
 
 
 def run() -> None:
@@ -45,8 +49,8 @@ def run() -> None:
     store = Store(config.db_path())
     live = LiveServer(config.socket_path())
     live.start()
-    host = build_host()
-    procs = ProcCollector()
+    host, gpu = build_host()
+    procs = ProcCollector(nvml=gpu._nvml)   # ten sam uchwyt NVML co GpuSource
     period = 1.0 / config.SAMPLE_HZ
     last_mono: float | None = None
     last_rollup = 0.0

@@ -21,8 +21,12 @@ class FakeLive:
 
 
 class FakeProcs:
-    def top(self):
-        return [{"pid": 1, "name": "x", "cpu": 1.0, "rss": 1.0, "vram": 0.0}]
+    def snapshot(self):
+        return (
+            [{"pid": 1, "name": "x", "cpu": 1.0, "rss": 1.0, "vram": 0.0}],
+            [{"pid": 1, "name": "x", "vram": 2048.0, "gpus": [0], "type": "C",
+              "sm": 50.0, "enc": 0.0, "dec": 0.0}],
+        )
 
 
 def test_tick_writes_and_publishes():
@@ -33,3 +37,4 @@ def test_tick_writes_and_publishes():
     assert snap["ts"] == 5000
     assert snap["series"] == {"cpu.thread.0.util": 12.0}
     assert snap["procs"][0]["pid"] == 1
+    assert snap["gpu_procs"][0]["vram"] == 2048.0
