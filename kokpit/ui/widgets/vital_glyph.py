@@ -48,6 +48,7 @@ class VitalGlyph(QtWidgets.QWidget):
 
     R_BASE = 40.0
     R_SPAN = 90.0
+    LABEL_MARGIN = 34.0     # pierścień na etykiety poza wielokątem (gwiazda skaluje się do widgetu)
 
     def __init__(self) -> None:
         super().__init__()
@@ -121,38 +122,53 @@ class VitalGlyph(QtWidgets.QWidget):
         ang = -math.pi / 2 + 2 * math.pi * i / n     # start u góry, zgodnie z zegarem
         return QtCore.QPointF(cx + r * math.cos(ang), cy + r * math.sin(ang))
 
+    def _scale(self, half: float) -> float:
+        """Skala wielokąta dopasowana do połowy-rozmiaru widgetu — gwiazda rośnie
+        z kafelkiem i NIGDY nie wychodzi poza granice (margines na etykiety)."""
+        return max(0.1, (half - self.LABEL_MARGIN) / (self.R_BASE + self.R_SPAN))
+
     def _label_radius(self, half: float) -> float:
-        """Promień etykiet ramion: stały offset tuż za najdłuższym możliwym
-        ramieniem (R_BASE/R_SPAN są w pikselach, więc wielokąt nie skaluje się
-        z widgetem), zaciśnięty do `half - 6`, by przy małym widgecie etykiety
-        mieściły się w granicach zamiast być obcinane."""
-        return min(self.R_BASE + self.R_SPAN + 14.0, half - 6.0)
+        """Promień etykiet — tuż za najdłuższym (przeskalowanym) ramieniem,
+        zaciśnięty do granic widgetu."""
+        return min(half - 8.0, (half - self.LABEL_MARGIN) + 16.0)
 
     def paintEvent(self, _event) -> None:
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing)
         cx, cy = self.width() / 2.0, self.height() / 2.0
+        center = QtCore.QPointF(cx, cy)
         n = len(self._spokes)
         if n == 0:
             p.end()
             return
-        # baseline ring (spokojny wielokąt referencyjny)
-        ref = QtGui.QPolygonF([self._vertex(cx, cy, i, n, self.R_BASE) for i in range(n)])
-        pen = QtGui.QPen(QtGui.QColor(DIM_FG))
-        pen.setWidthF(1.0)
-        p.setPen(pen)
-        p.setBrush(QtCore.Qt.NoBrush)
-        p.drawPolygon(ref)
+        half = min(cx, cy)
+        sc = self._scale(half)
+        r_base = self.R_BASE * sc
+        r_full = (self.R_BASE + self.R_SPAN) * sc      # promień ramienia przy score=1
 
-        # trail ghosts: neutralny, przygaszony ślad ruchu (kolory niesie teraz każda oś osobno)
+        def vtx(i, r):
+            return self._vertex(cx, cy, i, n, r)
+
+        # --- radar grid: koncentryczne pierścienie (n-gon) + promieniste linie web ---
+        p.setBrush(QtCore.Qt.NoBrush)
+        for frac in (0.25, 0.5, 0.75, 1.0):
+            rr = r_base + (r_full - r_base) * frac
+            p.setPen(QtGui.QPen(QtGui.QColor(70, 92, 112, 70), 1.0))
+            p.drawPolygon(QtGui.QPolygonF([vtx(i, rr) for i in range(n)]))
+        for i in range(n):                              # szprychy siatki do max promienia
+            p.setPen(QtGui.QPen(QtGui.QColor(70, 92, 112, 55), 1.0))
+            p.drawLine(center, vtx(i, r_full))
+
+        # baseline ring (spokojny wielokąt referencyjny)
+        p.setPen(QtGui.QPen(QtGui.QColor(DIM_FG), 1.0))
+        p.drawPolygon(QtGui.QPolygonF([vtx(i, r_base) for i in range(n)]))
+
+        # trail ghosts: neutralny, przygaszony ślad ruchu (skala jak bieżąca geometria)
         trail_n = len(self._current) if self._current else 0
         if trail_n == n and self._trail:
             for radii, alpha in self._trail:
-                ghost_poly = QtGui.QPolygonF(
-                    [self._vertex(cx, cy, i, n, radii[i]) for i in range(n)]
-                )
-                ghost_pen = round_pen(QtGui.QColor(120, 140, 160, int(alpha)), 1.0)
-                p.setPen(ghost_pen)
+                ghost_poly = QtGui.QPolygonF([vtx(i, radii[i] * sc) for i in range(n)])
+                p.setPen(round_pen(QtGui.QColor(120, 140, 160, int(alpha)), 1.0))
                 p.setBrush(QtCore.Qt.NoBrush)
                 p.drawPolygon(ghost_poly)
 
@@ -160,16 +176,17 @@ class VitalGlyph(QtWidgets.QWidget):
         cur = self._current if (self._current and len(self._current) == n) else [s.score for s in self._spokes]
         peak = max((s.score for s in self._spokes), default=0.0)
         peak_name = max(self._spokes, key=lambda s: s.score).name if self._spokes else ""
-        vtxs = [self._vertex(cx, cy, i, n, self.vertex_radius(cur[i])) for i in range(n)]
+        vtxs = [vtx(i, self.vertex_radius(cur[i]) * sc) for i in range(n)]
 
-        # struktura gwiazdy: cienki, przygaszony wielokąt łączący wierzchołki
-        p.setPen(round_pen(QtGui.QColor(90, 110, 130, 130), 1.0))
-        p.setBrush(QtCore.Qt.NoBrush)
+        # ciało gwiazdy: półprzezroczyste wypełnienie wielokąta danych (kolor peak osi) — głębia
+        body = axis_qcolor(peak_name, peak)
+        body.setAlpha(40 if not self._calibrating else 22)
+        p.setBrush(QtGui.QBrush(body))
+        p.setPen(round_pen(QtGui.QColor(150, 170, 190, 150), 1.0))
         p.drawPolygon(QtGui.QPolygonF(vtxs))
 
         # promień per-oś: linia środek→wierzchołek + kropka, każda we własnym kolorze,
         # jaskrawość wg score (0 blado → 100 pełny neon + bloom)
-        center = QtCore.QPointF(cx, cy)
         for i, s in enumerate(self._spokes):
             col = axis_qcolor(s.name, s.score)
             if s.score >= GLOW_THRESHOLD:          # bloom tylko dla rozjarzonych ramion
@@ -183,8 +200,7 @@ class VitalGlyph(QtWidgets.QWidget):
             p.setBrush(QtGui.QBrush(col))
             p.setPen(QtCore.Qt.NoPen)
             p.drawEllipse(vtxs[i], dot, dot)
-        # podpisy ramion: kod osi + wartość na stałym promieniu poza max ramieniem
-        half = min(cx, cy)
+        # podpisy ramion: kod osi + wartość na promieniu poza max (przeskalowanym) ramieniem
         label_r = self._label_radius(half)
         lf = p.font()
         lf.setPointSize(8)

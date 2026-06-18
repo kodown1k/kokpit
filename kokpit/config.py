@@ -43,3 +43,4 @@ BASELINE_REFRESH_S = 60.0      # UI recompute baseline nie częściej niż co ty
 Z_FULL = 3.0                   # z-score dający ramię pełnej długości
 EPS_SIGMA = 1e-9               # σ poniżej → seria stała, z=0 (guard dzielenia)
 LIVE_EWMA_S = 45.0             # okno wygładzania live (licznik z-score, §3)
+FAST_EWMA_S = 4.0              # krótkie okno dla bursty liczników IO (net/disk) — ramię nie zostaje rozgrzane po spike'u

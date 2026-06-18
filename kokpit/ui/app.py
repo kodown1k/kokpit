@@ -15,6 +15,7 @@ from kokpit.ui.widgets.history_strip import HistoryStrip, window_mode
 from kokpit.ui.glyph_model import BaselineCache, GlyphModel
 from kokpit.ui.widgets.gpu_proc_table import GpuProcTable
 from kokpit.ui.widgets.proc_table import ProcTable
+from kokpit.ui.widgets.disk_usage import DiskUsage
 from kokpit.ui.widgets.sparkline import Sparkline
 from kokpit.ui.widgets.sysinfo import SysInfo
 from kokpit.ui.widgets.vital_glyph import VitalGlyph
@@ -88,6 +89,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._net = Sparkline("NET rx (KB/s)", window_s=120, color=(61, 240, 255),
                               icon="net-rx", scale=1.0 / 1024)
         self._disk = Sparkline("DISK r", window_s=120, color=(57, 255, 20), icon="disk-read")
+        self._disk_usage = DiskUsage()
         self._procs = ProcTable()
         self._gpu_procs = GpuProcTable()
         self._gpu_extra = GpuPanel(gpu_indices[1:]) if len(gpu_indices) > 1 else None
@@ -154,6 +156,7 @@ class MainWindow(QtWidgets.QMainWindow):
         charts_lay.setSpacing(6)
         charts_lay.addWidget(self._net)
         charts_lay.addWidget(self._disk)
+        charts_lay.addWidget(self._disk_usage)   # obok DISK r: zajętość/wolne per dysk
         right = QtWidgets.QWidget()
         right_lay = QtWidgets.QVBoxLayout(right)
         right_lay.setContentsMargins(0, 0, 0, 0)
@@ -224,6 +227,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._core.set_util(s)
         self._core.set_temp(s)
         self._sysinfo.refresh()
+        self._disk_usage.refresh()
         self._net.push(s.get(self._net_key) if self._net_key else None)
         self._disk.push(s.get(self._disk_key) if self._disk_key else None)
         if self._gpu_extra is not None:
