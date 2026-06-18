@@ -44,3 +44,22 @@ Z_FULL = 3.0                   # z-score dający ramię pełnej długości
 EPS_SIGMA = 1e-9               # σ poniżej → seria stała, z=0 (guard dzielenia)
 LIVE_EWMA_S = 45.0             # okno wygładzania live (licznik z-score, §3)
 FAST_EWMA_S = 4.0              # krótkie okno dla bursty liczników IO (net/disk) — ramię nie zostaje rozgrzane po spike'u
+
+
+def control_socket_path() -> Path:
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    base = Path(runtime) if runtime else Path("/tmp")
+    return base / "kokpit-ctl.sock"
+
+
+def audit_path() -> Path:
+    return data_dir() / "actuator-audit.jsonl"
+
+
+# --- Actuator / Envelope (spec 2026-06-18) ---
+ENVELOPE_ENABLED = False         # opt-in; auto-actions only when True
+ENVELOPE_Z_TRIGGER = 2.5         # z-score (in σ) above baseline to fire envelope
+ENVELOPE_DEBOUNCE_S = 15.0       # sustained breach before acting (anti-flap)
+ENVELOPE_DEFAULT_TTL_S = 1800.0  # auto-revert window for envelope actions
+GPU_POWER_FLOOR_W = 100          # never cap GPU below this
+RENICE_BACKGROUND = 15           # default nice for "make it quiet" demotions
