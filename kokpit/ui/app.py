@@ -149,8 +149,8 @@ class MainWindow(QtWidgets.QMainWindow):
         proc_split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         proc_split.addWidget(_titled("processes", NEON_CYAN, "PROCESSES", self._procs))
         proc_split.addWidget(_titled("gpu", NEON_MAGENTA, "GPU PROCESSES", self._gpu_procs))
-        proc_split.setStretchFactor(0, 3)   # proporcja 3:4 — GPU-tabela (więcej kolumn)
-        proc_split.setStretchFactor(1, 4)   # dostaje trochę więcej szerokości
+        proc_split.setStretchFactor(0, 3)   # PROCESSES (CPU)
+        proc_split.setStretchFactor(1, 4)   # GPU-tabela ma więcej kolumn → szersza (proporcja 3:4)
         grid.addWidget(proc_split, 4, 1, 1, 3)
         grid.addWidget(ctrl_w, 5, 1, 1, 3)
         grid.addWidget(self._glyph, 0, 4, 6, 1)   # Vital-Signs Glyph: right-side hero column
