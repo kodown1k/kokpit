@@ -71,6 +71,18 @@ def test_intent_quiet_applies(tmp_path):
         srv.stop()
 
 
+def test_revert_without_token_returns_error(tmp_path):
+    act = Actuator({"noop": NoopLever()}, AuditLog(tmp_path / "a.jsonl"), now_fn=lambda: 0)
+    srv = ControlServer(tmp_path / "ctl.sock", build_dispatch(act))
+    srv.start()
+    try:
+        r = _rpc(tmp_path / "ctl.sock", p.Request("revert", {}))
+        assert r.ok is False
+        assert "missing arg: token" in (r.error or "")
+    finally:
+        srv.stop()
+
+
 def test_confirm_applies_proposal(tmp_path):
     lv = NoopLever()
     act = Actuator({"noop": lv}, AuditLog(tmp_path / "a.jsonl"), now_fn=lambda: 0)

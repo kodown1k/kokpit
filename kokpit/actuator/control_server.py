@@ -23,8 +23,12 @@ class ControlServer:
         except FileNotFoundError:
             pass
         self._srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._srv.bind(self.sock_path)
-        os.chmod(self.sock_path, 0o600)   # owner-only: control is privileged-ish
+        old_umask = os.umask(0o177)  # restrict socket perms from the moment of bind
+        try:
+            self._srv.bind(self.sock_path)
+        finally:
+            os.umask(old_umask)
+        os.chmod(self.sock_path, 0o600)   # belt-and-suspenders: owner-only
         self._srv.listen(8)
         self._srv.settimeout(0.5)
         self._thread = threading.Thread(target=self._accept_loop, daemon=True)
@@ -43,7 +47,8 @@ class ControlServer:
     def _handle(self, conn: socket.socket) -> None:
         try:
             conn.settimeout(2.0)
-            line = conn.makefile("rb").readline()
+            with conn.makefile("rb") as f:
+                line = f.readline()
             try:
                 req = p.decode_request(line)
                 resp = self._dispatch(req)
@@ -81,6 +86,8 @@ def build_dispatch(actuator, proposer=None):
                 return p.Response(ok=False, error=f"unknown lever or arg: {e}")
             return p.Response(ok=True, data={"token": token})
         if req.verb == "revert":
+            if "token" not in a:
+                return p.Response(ok=False, error="missing arg: token")
             actuator.revert(a["token"])
             return p.Response(ok=True)
         if req.verb == "revert_all":
