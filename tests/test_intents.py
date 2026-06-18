@@ -15,6 +15,7 @@ def test_quiet_with_minutes():
 def test_release_all():
     assert parse_intent("zwolnij wszystko") == {"verb": "revert_all"}
     assert parse_intent("release all") == {"verb": "revert_all"}
+    assert parse_intent("odblokuj") == {"verb": "revert_all"}
 
 
 def test_cap_gpu():
@@ -24,3 +25,13 @@ def test_cap_gpu():
 
 def test_unrecognised_returns_none():
     assert parse_intent("ugabuga") is None
+
+
+def test_quiet_no_substring_false_positive():
+    """Verify 'quiet' no longer matches inside 'quietly'."""
+    assert parse_intent("run quietly") is None
+
+
+def test_max_no_substring_false_positive():
+    """Verify 'max' no longer matches inside 'maximum'."""
+    assert parse_intent("ustaw maximum quality") is None
