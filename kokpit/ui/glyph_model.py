@@ -124,7 +124,7 @@ def _fmt_display(name: str, best_val: Optional[float], prox: Optional[float]) ->
         return f"{code} {round(best_val)}°"
     if name in ("Disk IO", "Net IO"):
         mb = round(best_val / 1e6)
-        return f"{code} {mb}"
+        return code if mb == 0 else f"{code} {mb}"   # ukryj "DISK 0"/"NET 0" przy idle
     if name == "Swap":
         return f"{code} {round(best_val / 1048576)}M"
     if name == "CPU":
