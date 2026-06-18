@@ -11,6 +11,7 @@ dev = ["pytest>=8.0"]
 [project.scripts]
 kokpit-collectord = "kokpit.collectord:main"
 kokpit = "kokpit.ui.app:main"
+kokpit-actl-helper = "kokpit.actuator.helper:cli"
 
 [build-system]
 requires = ["setuptools>=68"]
