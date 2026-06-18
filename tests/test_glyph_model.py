@@ -208,6 +208,16 @@ def test_display_disk_io_mbs():
     assert spokes["Disk IO"].display == "DISK 8"
 
 
+def test_display_disk_net_idle_hides_zero():
+    """Sub-MB/s (idle) Disk IO / Net IO → just the code, no noisy ' 0'."""
+    m = gm.GlyphModel()
+    series = {"disk.nvme0n1.read_bps": 100_000.0,   # 0.1 MB/s → rounds to 0
+              "net.eth0.rx_bps": 0.0}               # truly idle
+    spokes = {s.name: s for s in m.update(series, 1_700_000_000_000, _const_provider({}))}
+    assert spokes["Disk IO"].display == "DISK"
+    assert spokes["Net IO"].display == "NET"
+
+
 def test_display_gpu_util():
     """GPU util 73 → display contains 'GPU 73%'."""
     m = gm.GlyphModel()
