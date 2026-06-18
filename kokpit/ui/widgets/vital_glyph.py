@@ -37,8 +37,11 @@ class VitalGlyph(QtWidgets.QWidget):
         return QtCore.QPointF(cx + r * math.cos(ang), cy + r * math.sin(ang))
 
     def _label_radius(self, half: float) -> float:
-        """Promień do wyświetlania etykiet ramion — zaciskany, by mieścić się w widgecie."""
-        return min((self.R_BASE + self.R_SPAN) * (half / 130.0) + 14.0, half - 6.0)
+        """Promień etykiet ramion: stały offset tuż za najdłuższym możliwym
+        ramieniem (R_BASE/R_SPAN są w pikselach, więc wielokąt nie skaluje się
+        z widgetem), zaciśnięty do `half - 6`, by przy małym widgecie etykiety
+        mieściły się w granicach zamiast być obcinane."""
+        return min(self.R_BASE + self.R_SPAN + 14.0, half - 6.0)
 
     def paintEvent(self, _event) -> None:
         p = QtGui.QPainter(self)

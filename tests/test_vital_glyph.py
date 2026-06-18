@@ -19,15 +19,16 @@ def test_label_radius_clamp_at_minimum_size(qapp):
     )
 
 
-def test_label_radius_scales_at_large_size(qapp):
-    """_label_radius scales up beyond the clamped value at large widget sizes."""
+def test_label_radius_settles_outside_polygon_when_room(qapp):
+    """When the widget is large enough, labels sit at a fixed radius just
+    outside the (fixed-size) polygon — and that is larger than the clamped
+    value forced at minimum size. Proves both `min` branches are reachable."""
     from kokpit.ui.widgets.vital_glyph import VitalGlyph
     w = VitalGlyph()
-    half_small = 140.0
-    half_large = 400.0
-    assert w._label_radius(half_large) > w._label_radius(half_small), (
-        "label_r should increase for larger widget halves"
-    )
+    outside_polygon = w.R_BASE + w.R_SPAN + 14.0
+    assert w._label_radius(400.0) == outside_polygon          # room → fixed offset branch
+    assert w._label_radius(140.0) == 140.0 - 6.0              # cramped → clamp branch
+    assert w._label_radius(400.0) > w._label_radius(140.0)
 
 
 def test_set_spokes_renders_without_crash(qapp):
