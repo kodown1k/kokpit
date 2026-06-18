@@ -19,7 +19,7 @@ class VitalGlyph(QtWidgets.QWidget):
         super().__init__()
         self._spokes: list = []
         self._calibrating = True
-        self.setMinimumSize(220, 220)
+        self.setMinimumSize(280, 280)
 
     def vertex_radius(self, score: float) -> float:
         return self.R_BASE + self.R_SPAN * max(0.0, min(1.0, score))
@@ -69,6 +69,43 @@ class VitalGlyph(QtWidgets.QWidget):
                 p.setPen(QtGui.QPen(QtGui.QColor(gr, gg, gb, 120), 6.0))
                 v = self._vertex(cx, cy, i, n, self.vertex_radius(s.score))
                 p.drawEllipse(v, 4.0, 4.0)
+        # podpisy ramion: kod osi + wartość na stałym promieniu poza max ramieniem
+        half = min(cx, cy)
+        label_r = (self.R_BASE + self.R_SPAN) * (half / 130.0) + 14.0
+        lf = p.font()
+        lf.setPointSize(8)
+        lf.setBold(False)
+        p.setFont(lf)
+        fm = QtGui.QFontMetrics(lf)
+        for i, s in enumerate(self._spokes):
+            if not s.display:
+                continue
+            ang = -math.pi / 2 + 2 * math.pi * i / n
+            lx = cx + label_r * math.cos(ang)
+            ly = cy + label_r * math.sin(ang)
+            tw = fm.horizontalAdvance(s.display)
+            th = fm.height()
+            # quadrant-anchor: splay text outward
+            cos_a = math.cos(ang)
+            sin_a = math.sin(ang)
+            if cos_a > 0.25:
+                rx = lx
+            elif cos_a < -0.25:
+                rx = lx - tw
+            else:
+                rx = lx - tw / 2
+            if sin_a > 0.25:
+                ry = ly + th * 0.8
+            elif sin_a < -0.25:
+                ry = ly
+            else:
+                ry = ly + th * 0.4
+            if s.score >= GLOW_THRESHOLD:
+                lr, lg, lb = util_rgb(s.score)
+                p.setPen(QtGui.QPen(QtGui.QColor(lr, lg, lb)))
+            else:
+                p.setPen(QtGui.QPen(QtGui.QColor(DIM_FG)))
+            p.drawText(QtCore.QPointF(rx, ry), s.display)
         # centrum: skalar zdrowia + stan kalibracji
         p.setPen(QtGui.QPen(edge))
         f = p.font()

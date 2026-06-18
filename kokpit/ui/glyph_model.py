@@ -94,6 +94,42 @@ class SpokeScore:
     score: float
     value: Optional[float]
     tier: Optional[str]
+    display: str = ""
+
+
+_AXIS_CODE: dict = {
+    "CPU":      "CPU",
+    "RAM":      "RAM",
+    "Swap":     "SWP",
+    "GPU":      "GPU",
+    "VRAM":     "VRAM",
+    "CPU temp": "CPU°",
+    "GPU temp": "GPU°",
+    "Disk IO":  "DISK",
+    "Net IO":   "NET",
+}
+
+
+def _fmt_display(name: str, best_val: Optional[float], prox: Optional[float]) -> str:
+    code = _AXIS_CODE.get(name, name)
+    if name in ("RAM", "VRAM"):
+        if prox is None:
+            return code
+        return f"{code} {round(prox * 100)}%"
+    if best_val is None:
+        return code
+    if name == "GPU":
+        return f"{code} {round(best_val)}%"
+    if name in ("CPU temp", "GPU temp"):
+        return f"{code} {round(best_val)}°"
+    if name in ("Disk IO", "Net IO"):
+        mb = round(best_val / 1e6)
+        return f"{code} {mb}"
+    if name == "Swap":
+        return f"{code} {round(best_val / 1048576)}M"
+    if name == "CPU":
+        return f"{code} {best_val:.1f}"
+    return code
 
 
 def _members_suffix(prefix: str, suffix: str):
@@ -159,7 +195,8 @@ class GlyphModel:
                     best_tier = base[3] if base is not None else best_tier
             prox = proximity(series)
             score = max(best_z, 0.0 if prox is None else clamp01(prox))
-            spokes.append(SpokeScore(name=name, score=score, value=best_val, tier=best_tier))
+            display = _fmt_display(name, best_val, prox)
+            spokes.append(SpokeScore(name=name, score=score, value=best_val, tier=best_tier, display=display))
         self.calibrating = not any_baseline
         return spokes
 

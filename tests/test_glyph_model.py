@@ -166,6 +166,56 @@ def test_baseline_cache_throttles_recompute():
     assert store.calls == 2
 
 
+def test_display_ram_proximity():
+    """RAM spoke with 71% proximity → display contains 'RAM 71%'."""
+    m = gm.GlyphModel()
+    series = {"mem.used": 71.0, "mem.total": 100.0}
+    spokes = {s.name: s for s in m.update(series, 1_700_000_000_000, _const_provider({}))}
+    assert "RAM" in spokes["RAM"].display
+    assert "71%" in spokes["RAM"].display
+
+
+def test_display_cpu_temp():
+    """CPU temp spoke with best_val 87 → display is 'CPU° 87°'."""
+    m = gm.GlyphModel()
+    series = {"thermal.coretemp.0.pkg": 87.0}
+    spokes = {s.name: s for s in m.update(series, 1_700_000_000_000, _const_provider({}))}
+    assert spokes["CPU temp"].display == "CPU° 87°"
+
+
+def test_display_cpu_loadavg():
+    """CPU loadavg 2.3 → display contains 'CPU 2.3'."""
+    m = gm.GlyphModel()
+    series = {"cpu.loadavg.1": 2.3}
+    spokes = {s.name: s for s in m.update(series, 1_700_000_000_000, _const_provider({}))}
+    assert spokes["CPU"].display == "CPU 2.3"
+
+
+def test_display_cold_start_just_code():
+    """Cold-start (empty series) → every spoke display is just the axis code, no value."""
+    m = gm.GlyphModel()
+    spokes = {s.name: s for s in m.update({}, 1_700_000_000_000, _const_provider({}))}
+    assert spokes["CPU"].display == "CPU"
+    assert spokes["RAM"].display == "RAM"
+    assert spokes["GPU"].display == "GPU"
+
+
+def test_display_disk_io_mbs():
+    """Disk IO 8 MB/s → display is 'DISK 8'."""
+    m = gm.GlyphModel()
+    series = {"disk.nvme0n1.read_bps": 8_000_000.0}
+    spokes = {s.name: s for s in m.update(series, 1_700_000_000_000, _const_provider({}))}
+    assert spokes["Disk IO"].display == "DISK 8"
+
+
+def test_display_gpu_util():
+    """GPU util 73 → display contains 'GPU 73%'."""
+    m = gm.GlyphModel()
+    series = {"gpu.0.util": 73.0}
+    spokes = {s.name: s for s in m.update(series, 1_700_000_000_000, _const_provider({}))}
+    assert spokes["GPU"].display == "GPU 73%"
+
+
 def test_baseline_cache_does_not_cache_errors():
     """DB error must NOT be cached — next tick must retry (call count keeps growing)."""
     from kokpit.ui.glyph_model import BaselineCache
