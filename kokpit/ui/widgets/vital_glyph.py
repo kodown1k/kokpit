@@ -46,6 +46,8 @@ class VitalGlyph(QtWidgets.QWidget):
     """Wielokąt anomalii: promień wierzchołka = R_BASE + score*R_SPAN.
     Spokojny = regularny wielokąt; kolec = wydłużone ramię (spec §4.3)."""
 
+    capRequested = QtCore.Signal(str, float)
+
     R_BASE = 40.0
     R_SPAN = 90.0
     LABEL_MARGIN = 34.0     # pierścień na etykiety poza wielokątem (gwiazda skaluje się do widgetu)
@@ -61,6 +63,7 @@ class VitalGlyph(QtWidgets.QWidget):
         self._timer = QtCore.QTimer(self)
         self._timer.setInterval(TRAIL_INTERVAL_MS)
         self._timer.timeout.connect(self._advance)
+        self._drag_idx: int | None = None
 
     def vertex_radius(self, score: float) -> float:
         return self.R_BASE + self.R_SPAN * max(0.0, min(1.0, score))
@@ -131,6 +134,48 @@ class VitalGlyph(QtWidgets.QWidget):
         """Promień etykiet — tuż za najdłuższym (przeskalowanym) ramieniem,
         zaciśnięty do granic widgetu."""
         return min(half - 8.0, (half - self.LABEL_MARGIN) + 16.0)
+
+    def arm_at(self, pos) -> int | None:
+        n = len(self._spokes)
+        if n == 0:
+            return None
+        cx, cy = self.width() / 2.0, self.height() / 2.0
+        dx, dy = pos.x() - cx, pos.y() - cy
+        r = math.hypot(dx, dy)
+        half = min(cx, cy)
+        if r > half:               # outside the radar
+            return None
+        ang = math.atan2(dy, dx)   # -pi..pi, 0 = +x
+        # spoke i sits at -pi/2 + 2*pi*i/n; find nearest sector
+        best, best_d = None, 1e9
+        for i in range(n):
+            a = -math.pi / 2 + 2 * math.pi * i / n
+            d = abs(math.atan2(math.sin(ang - a), math.cos(ang - a)))
+            if d < best_d:
+                best, best_d = i, d
+        # accept only if within half a sector
+        return best if best_d <= math.pi / n else None
+
+    def _emit_cap(self, pos) -> None:
+        if self._drag_idx is None:
+            return
+        cx, cy = self.width() / 2.0, self.height() / 2.0
+        half = min(cx, cy)
+        sc = self._scale(half)
+        r = math.hypot(pos.x() - cx, pos.y() - cy)
+        r_base = self.R_BASE * sc
+        r_full = (self.R_BASE + self.R_SPAN) * sc
+        frac = clamp01((r - r_base) / max(1e-6, (r_full - r_base)))
+        name = self._spokes[self._drag_idx].name
+        self._drag_idx = None
+        self.capRequested.emit(name, frac)
+
+    def mousePressEvent(self, event):
+        self._drag_idx = self.arm_at(event.position())
+
+    def mouseReleaseEvent(self, event):
+        if self._drag_idx is not None:
+            self._emit_cap(event.position())
 
     def paintEvent(self, _event) -> None:
         p = QtGui.QPainter(self)

@@ -41,3 +41,19 @@ def test_glyph_constants_present_and_sane():
     assert config.Z_FULL == 3.0
     assert 0 < config.EPS_SIGMA < 1e-6
     assert config.LIVE_EWMA_S == 45.0
+
+
+def test_control_socket_path_uses_runtime(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    assert config.control_socket_path() == tmp_path / "kokpit-ctl.sock"
+
+
+def test_audit_path_under_data_dir(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    assert config.audit_path() == tmp_path / "kokpit" / "actuator-audit.jsonl"
+
+
+def test_envelope_defaults_present():
+    assert config.ENVELOPE_ENABLED is False
+    assert config.ENVELOPE_Z_TRIGGER > 0
+    assert config.ENVELOPE_DEFAULT_TTL_S > 0

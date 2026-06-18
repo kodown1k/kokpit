@@ -27,6 +27,7 @@ To, jakie pliki bot recenzuje, ustala **`analyzerConfig.diffPathFilters` w panel
 - Default ARP zawiera `*.md` → dlatego markdown (plany/spec w `docs/`) był recenzowany jak kod (szum).
 - **Ustawione dla kokpit:** `['*.py', '*.toml', '*.service']` — Python + pyproject + systemd unit; markdown wypada. Commit zmieniający tylko `docs/**.md` → bot daje `mr_analyze:no_diff` (zielono, zero findings).
 - Zmiana: `PUT /api/projects/7` z **pełnym** `analyzerConfig` (PUT replace'uje: `costCeilingUsd`, `maxTurns`, `allowedTools`, `diffPathFilters`). Auth z `~/.secrets` (`PANEL`, `PANEL_AUTH_TOKEN`).
+- **Actuator packaging (`*.policy`, `*.sh`) NIE jest w `diffPathFilters`** — obecny filtr to `['*.py', '*.toml', '*.service']`. Pliki `packaging/co.kodownik.kokpit.actl.policy` i `packaging/install-actl-helper.sh` są wrażliwe bezpieczeństwowo (polkit), ale bot ich nie recenzuje. Dodaj `*.policy` i `*.sh` do filtrów przez `PUT /api/projects/7` jeśli chcesz pokrycie bota — w przeciwnym razie recenzuj ręcznie przy każdej zmianie.
 
 ## Testy
 

@@ -6,11 +6,12 @@ dependencies = ["psutil>=6.0", "nvidia-ml-py>=12.560"]
 
 [project.optional-dependencies]
 ui = ["PySide6>=6.7", "pyqtgraph>=0.13"]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "defusedxml>=0.7"]
 
 [project.scripts]
 kokpit-collectord = "kokpit.collectord:main"
 kokpit = "kokpit.ui.app:main"
+kokpit-actl-helper = "kokpit.actuator.helper:cli"
 
 [build-system]
 requires = ["setuptools>=68"]
