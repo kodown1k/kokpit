@@ -7,13 +7,14 @@ from kokpit import config
 from kokpit.ui.history_model import HistoryModel
 from kokpit.ui.live_client import LiveClient
 from kokpit.ui.theme.icons import neon_pixmap
-from kokpit.ui.theme.palette import NEON_CYAN, NEON_LIME, apply_glow, qss_path
+from kokpit.ui.theme.palette import NEON_CYAN, NEON_LIME, NEON_MAGENTA, apply_glow, qss_path
 from kokpit.ui.widgets.core_ring_grid import CoreRingGrid
 from kokpit.ui.widgets.gauge import Gauge
 from kokpit.ui.widgets.gpu_panel import GpuPanel, expected_gpu_indices
 from kokpit.ui.widgets.hero_column import HeroColumn
 from kokpit.ui.widgets.history_strip import HistoryStrip, window_mode
 from kokpit.ui.glyph_model import BaselineCache, GlyphModel
+from kokpit.ui.widgets.gpu_proc_table import GpuProcTable
 from kokpit.ui.widgets.proc_table import ProcTable
 from kokpit.ui.widgets.sparkline import Sparkline
 from kokpit.ui.widgets.vital_glyph import VitalGlyph
@@ -87,6 +88,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._net = Sparkline("NET rx", window_s=120, color=(61, 240, 255), icon="net-rx")
         self._disk = Sparkline("DISK r", window_s=120, color=(57, 255, 20), icon="disk-read")
         self._procs = ProcTable()
+        self._gpu_procs = GpuProcTable()
         self._gpu_extra = GpuPanel(gpu_indices[1:]) if len(gpu_indices) > 1 else None
         self._glyph = VitalGlyph()
         self._glyph_model = GlyphModel()
@@ -143,7 +145,13 @@ class MainWindow(QtWidgets.QMainWindow):
         grid.addWidget(self._core, 0, 1, 2, 2)
         grid.addWidget(io, 0, 3, 2, 1)
         grid.addWidget(self._hist, 2, 1, 2, 3)
-        grid.addWidget(_titled("processes", NEON_CYAN, "PROCESSES", self._procs), 4, 1, 1, 3)
+        # PROCESSES (top-CPU) ‖ GPU PROCESSES (NVML, top-VRAM) — resizable splitter
+        proc_split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        proc_split.addWidget(_titled("processes", NEON_CYAN, "PROCESSES", self._procs))
+        proc_split.addWidget(_titled("gpu", NEON_MAGENTA, "GPU PROCESSES", self._gpu_procs))
+        proc_split.setStretchFactor(0, 3)   # PROCESSES (CPU)
+        proc_split.setStretchFactor(1, 4)   # GPU-tabela ma więcej kolumn → szersza (proporcja 3:4)
+        grid.addWidget(proc_split, 4, 1, 1, 3)
         grid.addWidget(ctrl_w, 5, 1, 1, 3)
         grid.addWidget(self._glyph, 0, 4, 6, 1)   # Vital-Signs Glyph: right-side hero column
         grid.addWidget(self._status, 6, 0, 1, 5)
@@ -199,6 +207,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._gpu_extra is not None:
             self._gpu_extra.update_snapshot(snap)
         self._procs.set_rows(snap.get("procs", []))
+        self._gpu_procs.set_rows(snap.get("gpu_procs", []))
         self._hist.on_snapshot(snap)
         spokes = self._glyph_model.update(s, snap.get("ts", _now_ms()), self._baseline.get)
         self._glyph.set_spokes(spokes, self._glyph_model.calibrating)
