@@ -32,3 +32,13 @@ def test_iface_disk_filters():
     assert not config.IFACE_DENY.match("enp5s0")
     assert config.DISK_DENY.match("loop0")
     assert not config.DISK_DENY.match("nvme0n1")
+
+
+def test_glyph_constants_present_and_sane():
+    from kokpit import config
+    assert config.BASELINE_MIN_SAMPLES == 10
+    assert config.FALLBACK_GLOBAL_DAYS == 7
+    assert config.BASELINE_REFRESH_S == 60
+    assert config.Z_FULL == 3.0
+    assert 0 < config.EPS_SIGMA < 1e-6
+    assert config.LIVE_EWMA_S == 45.0

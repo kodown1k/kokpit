@@ -35,3 +35,11 @@ def socket_path() -> Path:
 # substring matching (warp in CloudflareWARP). See test_iface_disk_filters for examples.
 IFACE_DENY = re.compile(r"^(lo|veth|br-|docker|tailscale|virbr|vmnet)|warp", re.IGNORECASE)
 DISK_DENY = re.compile(r"^(loop|ram|dm-|sr|fd)\d*$", re.IGNORECASE)
+
+# --- Vital-Signs Glyph (spec 2026-06-18) ---
+BASELINE_MIN_SAMPLES = 10      # min bucketów w tierze, by uznać baseline za użyteczny
+FALLBACK_GLOBAL_DAYS = 7       # okno tieru 'global'
+BASELINE_REFRESH_S = 60.0      # UI recompute baseline nie częściej niż co tyle
+Z_FULL = 3.0                   # z-score dający ramię pełnej długości
+EPS_SIGMA = 1e-9               # σ poniżej → seria stała, z=0 (guard dzielenia)
+LIVE_EWMA_S = 45.0             # okno wygładzania live (licznik z-score, §3)
