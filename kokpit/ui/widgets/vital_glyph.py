@@ -7,6 +7,12 @@ from kokpit.ui.theme.palette import DIM_FG, round_pen, util_rgb
 
 GLOW_THRESHOLD = 0.5
 
+EASE = 0.25
+TRAIL_ALPHA0 = 90
+TRAIL_TICKS = 14        # ~350 ms persystencji przy 40 fps (krótsza, snappy smuga)
+TRAIL_INTERVAL_MS = 25
+SETTLE_EPS = 0.002
+
 
 class VitalGlyph(QtWidgets.QWidget):
     """Wielokąt anomalii: promień wierzchołka = R_BASE + score*R_SPAN.
@@ -20,6 +26,12 @@ class VitalGlyph(QtWidgets.QWidget):
         self._spokes: list = []
         self._calibrating = True
         self.setMinimumSize(280, 280)
+        self._target: list[float] = []
+        self._current: list[float] = []
+        self._trail: list[tuple[tuple[float, ...], float]] = []
+        self._timer = QtCore.QTimer(self)
+        self._timer.setInterval(TRAIL_INTERVAL_MS)
+        self._timer.timeout.connect(self._advance)
 
     def vertex_radius(self, score: float) -> float:
         return self.R_BASE + self.R_SPAN * max(0.0, min(1.0, score))
@@ -30,7 +42,52 @@ class VitalGlyph(QtWidgets.QWidget):
     def set_spokes(self, spokes, calibrating: bool) -> None:
         self._spokes = list(spokes)
         self._calibrating = calibrating
-        self.update()   # zażądaj repaint
+        self._target = [s.score for s in self._spokes]
+        # Snap current on first frame or if spoke count changed
+        if not self._current or len(self._current) != len(self._target):
+            self._current = list(self._target)
+            self._trail = []   # stare wpisy mają radii innej długości → usuń (uniknij IndexError)
+        # Start timer to animate toward target
+        if not self._timer.isActive():
+            self._timer.start()
+        self.update()
+
+    def _advance(self) -> None:
+        if not self._current:
+            return
+        n = len(self._current)
+
+        # Ease current toward target
+        moving = False
+        for i in range(n):
+            delta = (self._target[i] - self._current[i]) * EASE
+            self._current[i] += delta
+            if abs(self._target[i] - self._current[i]) >= SETTLE_EPS:
+                moving = True
+
+        # Decay existing entries first, THEN append the fresh full-alpha snapshot,
+        # so a new ghost starts at TRAIL_ALPHA0 (nie ~86) — i tylko gdy faktycznie się rusza.
+        decay = TRAIL_ALPHA0 / TRAIL_TICKS
+        self._trail = [(r, a - decay) for r, a in self._trail if a - decay > 6]
+        if moving:
+            radii = tuple(self.vertex_radius(self._current[i]) for i in range(n))
+            self._trail.append((radii, TRAIL_ALPHA0))
+
+        # Cap buffer length
+        if len(self._trail) > TRAIL_TICKS:
+            self._trail = self._trail[-TRAIL_TICKS:]
+
+        # Check settled
+        settled = (
+            all(abs(self._target[i] - self._current[i]) < SETTLE_EPS for i in range(n))
+            and len(self._trail) == 0
+        )
+        if settled:
+            self._current = list(self._target)
+            self._timer.stop()
+            self.update()
+        else:
+            self.update()
 
     def _vertex(self, cx: float, cy: float, i: int, n: int, r: float) -> QtCore.QPointF:
         ang = -math.pi / 2 + 2 * math.pi * i / n     # start u góry, zgodnie z zegarem
@@ -58,9 +115,26 @@ class VitalGlyph(QtWidgets.QWidget):
         p.setPen(pen)
         p.setBrush(QtCore.Qt.NoBrush)
         p.drawPolygon(ref)
-        # glif: wypełniony wielokąt z wierzchołkami wg score
+
+        # trail ghosts: oldest first (normal iteration order)
+        trail_n = len(self._current) if self._current else 0
+        if trail_n == n and self._trail:
+            peak_score = max((s.score for s in self._spokes), default=0.0)
+            er, eg, eb = util_rgb(peak_score)
+            for radii, alpha in self._trail:
+                ghost_poly = QtGui.QPolygonF(
+                    [self._vertex(cx, cy, i, n, radii[i]) for i in range(n)]
+                )
+                ghost_color = QtGui.QColor(er, eg, eb, int(alpha))
+                ghost_pen = round_pen(ghost_color, 1.0)   # cienki, subtelny ślad
+                p.setPen(ghost_pen)
+                p.setBrush(QtCore.Qt.NoBrush)
+                p.drawPolygon(ghost_poly)
+
+        # current polygon: use _current for geometry, spokes for labels/glow logic
+        cur = self._current if (self._current and len(self._current) == n) else [s.score for s in self._spokes]
         poly = QtGui.QPolygonF(
-            [self._vertex(cx, cy, i, n, self.vertex_radius(s.score)) for i, s in enumerate(self._spokes)]
+            [self._vertex(cx, cy, i, n, self.vertex_radius(cur[i])) for i in range(n)]
         )
         peak = max((s.score for s in self._spokes), default=0.0)
         r, g, b = util_rgb(peak)
@@ -90,7 +164,7 @@ class VitalGlyph(QtWidgets.QWidget):
                 vtx_glow = QtGui.QColor(gr, gg, gb, 90)
                 vtx_pen = round_pen(vtx_glow, 10.0)
                 p.setPen(vtx_pen)
-                v = self._vertex(cx, cy, i, n, self.vertex_radius(s.score))
+                v = self._vertex(cx, cy, i, n, self.vertex_radius(cur[i]))
                 p.drawEllipse(v, 5.0, 5.0)
         # podpisy ramion: kod osi + wartość na stałym promieniu poza max ramieniem
         half = min(cx, cy)
