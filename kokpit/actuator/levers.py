@@ -1,7 +1,10 @@
+import logging
 import subprocess
 from abc import ABC, abstractmethod
 
 import psutil
+
+log = logging.getLogger("kokpit.actuator.levers")
 
 
 class LeverError(Exception):
@@ -95,8 +98,14 @@ class GovernorLever(Lever):
         return {"prior": prior}
 
     def revert(self, token_state: dict) -> None:
-        if token_state.get("prior"):
-            self._run(["pkexec", "kokpit-actl-helper", "governor", token_state["prior"]])
+        prior = token_state.get("prior")
+        if prior is None:
+            # 'prior' key missing entirely — nothing to restore
+            return
+        if not prior:
+            log.warning("GovernorLever.revert: prior governor is empty string, cannot restore")
+            return
+        self._run(["pkexec", "kokpit-actl-helper", "governor", prior])
 
 
 LEVERS: dict[str, Lever] = {

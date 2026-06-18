@@ -31,3 +31,17 @@ def test_governor_lever_captures_and_restores(monkeypatch):
 def test_priv_levers_registered():
     assert L.LEVERS["gpu_power"].requires_privilege is True
     assert L.LEVERS["governor"].requires_privilege is True
+
+
+def test_governor_revert_empty_prior_logs_warning(monkeypatch, caplog):
+    """GovernorLever.revert logs a warning when prior governor is empty string (falsy)."""
+    fx = FakeExec()
+    lever = L.GovernorLever(executor=fx)
+    with caplog.at_level("WARNING", logger="kokpit.actuator.levers"):
+        lever.revert({"prior": ""})
+    assert any("empty string" in r.message or "cannot restore" in r.message
+               for r in caplog.records), (
+        "Expected a WARNING log when prior governor is empty"
+    )
+    # No subprocess call should have been made
+    assert fx.calls == [], "revert must not call subprocess when prior is empty"
