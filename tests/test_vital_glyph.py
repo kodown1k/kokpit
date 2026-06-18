@@ -183,7 +183,7 @@ def test_trail_decays_and_settles(qapp):
     # manually add a trail entry
     n = len(w._current)
     radii = tuple(w.vertex_radius(w._current[i]) for i in range(n))
-    w._trail = [(radii, 90)]
+    w._trail = [(radii, 90.0)]
 
     # Advance many times to decay trail
     for _ in range(100):
