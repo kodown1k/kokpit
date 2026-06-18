@@ -184,3 +184,87 @@ def test_list_series_prefix_escapes_like_wildcards(tmp_path):
     assert s.list_series("net.rx_") == ["net.rx_bps"]
     assert s.list_series("100%") == []          # '%' literalny: brak serii zaczynającej się od '100%'
     s.close()
+
+
+def _seed_rollup(s, name, points):
+    """points: list[(bucket_ms, vavg)] — wstrzykuje wprost do rollup_1m.
+    Testujemy agregację baseline(), nie rollup_1m()."""
+    s.write(points[0][0], {name: points[0][1]})          # utwórz serię + commit
+    sid = s.conn.execute("SELECT id FROM series_dict WHERE name=?", (name,)).fetchone()[0]
+    s.conn.executemany(
+        "INSERT OR REPLACE INTO rollup_1m(bucket, series_id, vmin, vmax, vavg, vlast) "
+        "VALUES (?,?,?,?,?,?)",
+        [(b, sid, v, v, v, v) for b, v in points],
+    )
+    s.conn.commit()
+
+
+def _use_utc():
+    import os, time
+    os.environ["TZ"] = "UTC"
+    time.tzset()
+
+
+DAY = 86_400_000
+WEEK = 7 * DAY
+BASE = 1_700_000_000_000   # ustalony epoch ms (UTC); now dla wszystkich testów
+
+
+def test_baseline_circadian_tier(tmp_path):
+    _use_utc()
+    s = Store(tmp_path / "k.db")
+    # 12 bucketów dokładnie 7 dni od siebie → ta sama hour-of-week co BASE
+    pts = [(BASE - k * WEEK, 40.0 if k % 2 == 0 else 60.0) for k in range(12)]
+    _seed_rollup(s, "cpu.loadavg.1", pts)
+    mean, sigma, n, tier = s.baseline("cpu.loadavg.1", BASE)
+    assert tier == "circadian"
+    assert n == 12
+    assert mean == 50.0
+    assert abs(sigma - 10.0) < 1e-9
+    s.close()
+
+
+def test_baseline_falls_back_to_hour_tier(tmp_path):
+    _use_utc()
+    s = Store(tmp_path / "k.db")
+    # 3 buckety tej samej hour-of-week (tygodniowe) → circadian=3 (<10)
+    weekly = [(BASE - k * WEEK, 50.0) for k in range(3)]
+    # 9 bucketów dobowych (NIE wielokrotności 7 dni) → ta sama hour-of-DAY, inny dzień tygodnia
+    daily = [(BASE - k * DAY, 50.0) for k in (1, 2, 3, 4, 5, 6, 8, 9, 10)]
+    _seed_rollup(s, "cpu.loadavg.1", weekly + daily)
+    _, _, n, tier = s.baseline("cpu.loadavg.1", BASE)
+    assert tier == "hour"          # circadian=3<10, hour=3+9=12>=10
+    assert n == 12
+    s.close()
+
+
+def test_baseline_falls_back_to_global_tier(tmp_path):
+    _use_utc()
+    s = Store(tmp_path / "k.db")
+    # 11 bucketów w obrębie 7d, godzina-doby przesunięta o nieparzyste h → nigdy == BASE hour
+    pts = [(BASE - 3_600_000 - k * 7_200_000, 50.0) for k in range(11)]
+    _seed_rollup(s, "cpu.loadavg.1", pts)
+    _, _, n, tier = s.baseline("cpu.loadavg.1", BASE)
+    assert tier == "global"        # circadian=0, hour=0, global=11>=10
+    assert n == 11
+    s.close()
+
+
+def test_baseline_none_when_insufficient(tmp_path):
+    _use_utc()
+    s = Store(tmp_path / "k.db")
+    _seed_rollup(s, "cpu.loadavg.1", [(BASE, 50.0), (BASE - WEEK, 51.0)])  # tylko 2
+    assert s.baseline("cpu.loadavg.1", BASE) is None
+    assert s.baseline("never.seen.series", BASE) is None                   # brak serii
+    s.close()
+
+
+def test_baseline_constant_series_sigma_zero(tmp_path):
+    _use_utc()
+    s = Store(tmp_path / "k.db")
+    _seed_rollup(s, "thermal.coretemp.0.pkg", [(BASE - k * WEEK, 95.0) for k in range(12)])
+    mean, sigma, n, tier = s.baseline("thermal.coretemp.0.pkg", BASE)
+    assert mean == 95.0
+    assert sigma == 0.0            # konsument (glyph) zrobi guard EPS → z=0, proximity ratuje
+    assert tier == "circadian"
+    s.close()

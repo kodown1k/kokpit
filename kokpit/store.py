@@ -118,6 +118,44 @@ class Store:
 
     # --- dopisz w klasie Store, pod query() ---
 
+    def baseline(self, series: str, now_ms: int, min_samples: int | None = None):
+        """(mean, sigma, n, tier) baseline serii z rollup_1m, albo None.
+
+        Drabina fallbacku — pierwszy tier z n >= min_samples wygrywa:
+          'circadian' — buckety o tej samej godzinie-tygodnia co now_ms (cały rollup),
+          'hour'      — ta sama godzina doby, dowolny dzień,
+          'global'    — dowolna pora, ostatnie FALLBACK_GLOBAL_DAYS dni.
+        sigma między-minutowa (z vavg) — konsument dopasowuje granularność (spec §3).
+        strftime 'localtime' → strefa hosta (known-limitation: DST, spec §4.1).
+        """
+        if min_samples is None:
+            min_samples = config.BASELINE_MIN_SAMPLES
+        row = self.conn.execute("SELECT id FROM series_dict WHERE name=?", (series,)).fetchone()
+        if row is None:
+            return None
+        sid = row[0]
+        how = ("(CAST(strftime('%w', bucket/1000,'unixepoch','localtime') AS INT)*24"
+               " + CAST(strftime('%H', bucket/1000,'unixepoch','localtime') AS INT))")
+        how_now = ("(CAST(strftime('%w', ?/1000,'unixepoch','localtime') AS INT)*24"
+                   " + CAST(strftime('%H', ?/1000,'unixepoch','localtime') AS INT))")
+        hod = "CAST(strftime('%H', bucket/1000,'unixepoch','localtime') AS INT)"
+        hod_now = "CAST(strftime('%H', ?/1000,'unixepoch','localtime') AS INT)"
+        global_since = now_ms - config.FALLBACK_GLOBAL_DAYS * 86_400_000
+        tiers = (
+            ("circadian", f"series_id=? AND {how} = {how_now}", (sid, now_ms, now_ms)),
+            ("hour",      f"series_id=? AND {hod} = {hod_now}", (sid, now_ms)),
+            ("global",    "series_id=? AND bucket >= ?",         (sid, global_since)),
+        )
+        for tier, where, params in tiers:
+            n, mean, e2 = self.conn.execute(
+                f"SELECT COUNT(*), AVG(vavg), AVG(vavg*vavg) FROM rollup_1m WHERE {where}",
+                params,
+            ).fetchone()
+            if n >= min_samples:
+                var = max(0.0, e2 - mean * mean)
+                return (float(mean), var ** 0.5, int(n), tier)
+        return None
+
     def rollup_1m(self, now_ms: int) -> None:
         since = now_ms - config.ROLLUP_LOOKBACK_MS  # przelicz buckety z ostatniej godziny
         b = config.ROLLUP_BUCKET_MS                 # int z configu -> bezpieczny w f-stringu SQL
