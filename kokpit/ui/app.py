@@ -84,7 +84,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # resolve machine-specific series names up front (interface/disk names vary per host)
         self._net_key = primary_net_key(model.available_series("net."))
-        self._disk_key = first_metric_key(model.available_series("disk."), ".read_bps")
         gpu0 = gpu_indices[0] if gpu_indices else 0
 
         # PCI adapter (wifi) + płyta główna (chipset/ACPI) — wewn. ring spada na najgorętszy
@@ -100,7 +99,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._sysinfo = SysInfo()
         self._net = Sparkline("NET rx (KB/s)", window_s=120, color=(61, 240, 255),
                               icon="net-rx", scale=1.0 / 1024)
-        self._disk = Sparkline("DISK r", window_s=120, color=(57, 255, 20), icon="disk-read")
         self._disk_usage = DiskUsage()
         self._procs = ProcTable()
         self._gpu_procs = GpuProcTable()
@@ -164,7 +162,7 @@ class MainWindow(QtWidgets.QMainWindow):
         zone_glyph = QtWidgets.QWidget()
         zg = QtWidgets.QVBoxLayout(zone_glyph)
         zg.setContentsMargins(0, 0, 0, 0)
-        zg.addWidget(_titled("thermal", NEON_MAGENTA, "VITAL-SIGNS GLYPH", self._glyph), 1)
+        zg.addWidget(self._glyph, 1)
 
         # ZONA 3 — I/O & STORAGE (prawa): sparkline'y NET/DISK jeden pod drugim + zajętość
         zone_io = QtWidgets.QWidget()
@@ -172,8 +170,7 @@ class MainWindow(QtWidgets.QMainWindow):
         zi.setContentsMargins(0, 0, 0, 0)
         zi.setSpacing(6)
         zi.addWidget(self._net, 1)
-        zi.addWidget(self._disk, 1)
-        zi.addWidget(self._disk_usage, 1)   # ma własny nagłówek „DISK USAGE"
+        zi.addWidget(self._disk_usage, 2)   # ma własny nagłówek „DISK USAGE"
 
         # PROCESSES (top-CPU) ‖ GPU PROCESSES (NVML, top-VRAM) — resizable splitter
         proc_split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
@@ -254,7 +251,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._sysinfo.refresh()
         self._disk_usage.refresh()
         self._net.push(s.get(self._net_key) if self._net_key else None)
-        self._disk.push(s.get(self._disk_key) if self._disk_key else None)
         if self._gpu_extra is not None:
             self._gpu_extra.update_snapshot(snap)
         self._procs.set_rows(snap.get("procs", []))
