@@ -2,7 +2,6 @@
 do dwóch powiązanych temperatur (np. PCI adapter + płyta główna). Animowane sweep'y."""
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from kokpit.ui.theme.icons import neon_pixmap
 from kokpit.ui.theme.palette import DIM_FG, round_pen, value_color
 from kokpit.ui.widgets.ring_gauge import START_DEG, arc_span, ring_fraction
 
@@ -11,7 +10,7 @@ class DualRingGauge(QtWidgets.QWidget):
     def __init__(self, title: str, outer_label: str, inner_label: str,
                  accent_outer: str, accent_inner: str,
                  high: float | None = None, crit: float | None = None,
-                 unit: str = "°", vmax: float = 100.0, icon: str | None = "thermal") -> None:
+                 unit: str = "°", vmax: float = 100.0) -> None:
         super().__init__()
         self._title = title
         self._ol, self._il = outer_label, inner_label
@@ -22,7 +21,6 @@ class DualRingGauge(QtWidgets.QWidget):
         self._inner_val: float | None = None
         self._outer_shown = 0.0
         self._inner_shown = 0.0
-        self._pix = neon_pixmap(icon, accent_outer, 18) if icon else None
         self.setMinimumSize(128, 128)
         self._anim_o = self._mk_anim(True)
         self._anim_i = self._mk_anim(False)
@@ -95,27 +93,27 @@ class DualRingGauge(QtWidgets.QWidget):
         x0 = (self.width() - side) / 2
         y0 = (self.height() - side) / 2
         outer = QtCore.QRectF(x0 + m, y0 + m, side - 2 * m, side - 2 * m)
-        gap = max(14.0, side * 0.16)
+        ring_w = 9.0
+        gap = ring_w                      # wewn. ring tuż przy zewn. — bez odstępu
         inner = QtCore.QRectF(outer.left() + gap, outer.top() + gap,
                               outer.width() - 2 * gap, outer.height() - 2 * gap)
-        self._draw_ring(p, outer, self._outer_val, self._outer_shown, self._ao, 8)
-        self._draw_ring(p, inner, self._inner_val, self._inner_shown, self._ai, 7)
-        if self._pix is not None:
-            p.drawPixmap(int(outer.center().x() - 9), int(outer.top() + 5), self._pix)
+        self._draw_ring(p, outer, self._outer_val, self._outer_shown, self._ao, ring_w)
+        self._draw_ring(p, inner, self._inner_val, self._inner_shown, self._ai, ring_w)
         cx = outer.center().x()
         cy = outer.center().y()
         f = p.font()
         f.setBold(True)
-        f.setPointSize(max(10, int(side * 0.11)))
+        f.setPointSize(max(7, int(side * 0.07)))   # malutka czcionka wartości w środku
         p.setFont(f)
-        # dwie wartości w centrum, każda w kolorze swojego ringu
+        # dwie wartości w centrum, każda w kolorze swojego ringu (ciasno przy środku)
         ot = "--" if self._outer_val is None else f"{self._outer_shown:.0f}{self._unit}"
         it = "--" if self._inner_val is None else f"{self._inner_shown:.0f}{self._unit}"
+        lh = side * 0.11
         p.setPen(self._color(self._outer_val, self._ao))
-        p.drawText(QtCore.QRectF(outer.left(), cy - side * 0.18, outer.width(), side * 0.16),
+        p.drawText(QtCore.QRectF(outer.left(), cy - lh, outer.width(), lh),
                    QtCore.Qt.AlignCenter, f"{self._ol} {ot}")
         p.setPen(self._color(self._inner_val, self._ai))
-        p.drawText(QtCore.QRectF(outer.left(), cy + side * 0.02, outer.width(), side * 0.16),
+        p.drawText(QtCore.QRectF(outer.left(), cy, outer.width(), lh),
                    QtCore.Qt.AlignCenter, f"{self._il} {it}")
         f.setBold(True)
         f.setPointSize(8)
