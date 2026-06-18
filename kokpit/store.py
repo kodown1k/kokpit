@@ -116,8 +116,6 @@ class Store:
             ).fetchall()
         return [name for (name,) in rows]
 
-    # --- dopisz w klasie Store, pod query() ---
-
     def baseline(self, series: str, now_ms: int, min_samples: int | None = None):
         """(mean, sigma, n, tier) baseline serii z rollup_1m, albo None.
 
@@ -151,7 +149,7 @@ class Store:
                 f"SELECT COUNT(*), AVG(vavg), AVG(vavg*vavg) FROM rollup_1m WHERE {where}",
                 params,
             ).fetchone()
-            if n >= min_samples:
+            if n >= min_samples and mean is not None:
                 var = max(0.0, e2 - mean * mean)
                 return (float(mean), var ** 0.5, int(n), tier)
         return None

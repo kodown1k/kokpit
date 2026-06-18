@@ -276,3 +276,28 @@ def test_baseline_constant_series_sigma_zero(tmp_path, use_utc):
     assert sigma == 0.0            # konsument (glyph) zrobi guard EPS → z=0, proximity ratuje
     assert tier == "circadian"
     s.close()
+
+
+def _seed_rollup_null_vavg(s, name, buckets):
+    """Wstrzykuje wiersze do rollup_1m z NULL dla vmin/vmax/vavg/vlast (uszkodzony rollup).
+    buckets: lista bucket_ms."""
+    s.write(buckets[0], {name: 0.0})          # utwórz serię w series_dict
+    sid = s.conn.execute("SELECT id FROM series_dict WHERE name=?", (name,)).fetchone()[0]
+    s.conn.executemany(
+        "INSERT OR REPLACE INTO rollup_1m(bucket, series_id, vmin, vmax, vavg, vlast) "
+        "VALUES (?,?,NULL,NULL,NULL,NULL)",
+        [(b, sid) for b in buckets],
+    )
+    s.conn.commit()
+
+
+def test_baseline_null_vavg_tier_skipped(tmp_path, use_utc):
+    """Tier z n >= min_samples ale wszystkimi NULL vavg nie może rzucić TypeError — musi być None."""
+    s = Store(tmp_path / "k.db")
+    # 12 bucketów tej samej hour-of-week co BASE → circadian n=12 >= 10
+    # ale vavg = NULL → AVG() = NULL → bez guard'u TypeError: 'NoneType' - float
+    null_buckets = [BASE - k * WEEK for k in range(12)]
+    _seed_rollup_null_vavg(s, "cpu.loadavg.1", null_buckets)
+    # Oczekiwane: wszystkie tiery pominięte (mean is None) → baseline zwraca None
+    assert s.baseline("cpu.loadavg.1", BASE) is None
+    s.close()

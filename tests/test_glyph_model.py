@@ -116,6 +116,22 @@ def test_update_disk_worst_of_family():
     assert spokes["Disk IO"].score == 1.0                  # worst-of = sda
 
 
+def test_update_tie_break_first_member_wins():
+    """Przy równych z-score (remis) pierwsze ramię rodziny wygrywa — tier/value spójne."""
+    m = gm.GlyphModel()
+    # Oba dyski mają dokładnie takie same mean/sigma/value → identyczny z-score
+    prov = _const_provider({
+        "disk.nvme0n1.read_bps": (50.0, 10.0, 12, "circadian"),
+        "disk.sda.read_bps":     (50.0, 10.0, 12, "hour"),
+    })
+    series = {"disk.nvme0n1.read_bps": 80.0, "disk.sda.read_bps": 80.0}
+    spokes = {s.name: s for s in m.update(series, 1_700_000_000_000, prov)}
+    disk = spokes["Disk IO"]
+    # Przy remisie (z == best_z) pierwsza seria w z_members wygrywa
+    # disk_io_members iteruje w kolejności keys() → nvme0n1 przed sda
+    assert disk.tier == "circadian"   # tier pierwszego członka, nie drugiego
+
+
 def test_update_cold_start_calibrating_flag():
     m = gm.GlyphModel()
     m.update({"cpu.loadavg.1": 1.0}, 1_700_000_000_000, _const_provider({}))  # provider zawsze None

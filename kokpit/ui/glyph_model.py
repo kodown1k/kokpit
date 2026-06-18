@@ -154,7 +154,7 @@ class GlyphModel:
                 if base is not None:
                     any_baseline = True
                 z = z_norm(self._sm[m], base)
-                if z >= best_z or best_val is None:
+                if z > best_z or best_val is None:
                     best_z, best_val = z, v
                     best_tier = base[3] if base is not None else best_tier
             prox = proximity(series)
