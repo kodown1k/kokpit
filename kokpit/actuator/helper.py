@@ -22,25 +22,34 @@ def _available_governors() -> list[str]:
 
 
 def _nvml_power_bounds_mw(index: int) -> tuple[int, int]:
-    import pynvml as n
-    n.nvmlInit()
-    h = n.nvmlDeviceGetHandleByIndex(index)
-    lo, hi = n.nvmlDeviceGetPowerManagementLimitConstraints(h)
-    return int(lo), int(hi)
+    try:
+        import pynvml as n
+        n.nvmlInit()
+        h = n.nvmlDeviceGetHandleByIndex(index)
+        lo, hi = n.nvmlDeviceGetPowerManagementLimitConstraints(h)
+        return int(lo), int(hi)
+    except Exception as e:
+        raise OSError(str(e)) from e
 
 
 def _nvml_set_power(index: int, milliwatts: int) -> None:
-    import pynvml as n
-    n.nvmlInit()
-    h = n.nvmlDeviceGetHandleByIndex(index)
-    n.nvmlDeviceSetPowerManagementLimit(h, milliwatts)
+    try:
+        import pynvml as n
+        n.nvmlInit()
+        h = n.nvmlDeviceGetHandleByIndex(index)
+        n.nvmlDeviceSetPowerManagementLimit(h, milliwatts)
+    except Exception as e:
+        raise OSError(str(e)) from e
 
 
 def _nvml_default_power_mw(index: int) -> int:
-    import pynvml as n
-    n.nvmlInit()
-    h = n.nvmlDeviceGetHandleByIndex(index)
-    return int(n.nvmlDeviceGetPowerManagementDefaultLimit(h))
+    try:
+        import pynvml as n
+        n.nvmlInit()
+        h = n.nvmlDeviceGetHandleByIndex(index)
+        return int(n.nvmlDeviceGetPowerManagementDefaultLimit(h))
+    except Exception as e:
+        raise OSError(str(e)) from e
 
 
 def set_governor(name: str) -> int:
