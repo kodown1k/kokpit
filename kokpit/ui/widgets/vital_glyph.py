@@ -9,7 +9,7 @@ GLOW_THRESHOLD = 0.5
 
 EASE = 0.25
 TRAIL_ALPHA0 = 90
-TRAIL_TICKS = 24
+TRAIL_TICKS = 14        # ~350 ms persystencji przy 40 fps (krótsza, snappy smuga)
 TRAIL_INTERVAL_MS = 25
 SETTLE_EPS = 0.002
 
@@ -126,7 +126,7 @@ class VitalGlyph(QtWidgets.QWidget):
                     [self._vertex(cx, cy, i, n, radii[i]) for i in range(n)]
                 )
                 ghost_color = QtGui.QColor(er, eg, eb, int(alpha))
-                ghost_pen = round_pen(ghost_color, 2.0)
+                ghost_pen = round_pen(ghost_color, 1.0)   # cienki, subtelny ślad
                 p.setPen(ghost_pen)
                 p.setBrush(QtCore.Qt.NoBrush)
                 p.drawPolygon(ghost_poly)
