@@ -7,6 +7,7 @@ from kokpit.actuator.audit import AuditLog
 from kokpit.actuator.control_server import ControlServer, build_dispatch
 from kokpit.actuator.engine import Actuator
 from kokpit.actuator.levers import LEVERS
+from kokpit.actuator.policy import DEFAULT_POLICIES, EnvelopeEvaluator
 from kokpit.host import LocalHost
 from kokpit.live import LiveServer
 from kokpit.proc import ProcCollector
@@ -17,6 +18,7 @@ from kokpit.sources.memory import MemorySource
 from kokpit.sources.net import NetSource
 from kokpit.sources.thermal import ThermalSource
 from kokpit.store import Store
+from kokpit.ui.glyph_model import GlyphModel, BaselineCache
 
 log = logging.getLogger("kokpit.collectord")
 
@@ -36,6 +38,31 @@ def build_host() -> tuple[LocalHost, GpuSource]:
         DiskSource(), ThermalSource(), gpu,
     ])
     return host, gpu
+
+
+class _GlyphState:
+    """Holds the daemon-side GlyphModel + BaselineCache between ticks."""
+    def __init__(self, store=None, now_fn=None):
+        self.model = GlyphModel()
+        self.baseline = BaselineCache(store, now_fn) if store is not None else None
+
+    def axis_baseline(self, axis_name):
+        # Map axis -> representative series baseline. Minimal: reuse cache by axis.
+        if self.baseline is None:
+            return None
+        return self.baseline.get(axis_name)
+
+
+def tick_envelope(host, store, live, procs, actuator, envelope, glyph, now_ms, dt_s):
+    series = host.collect(now_ms, dt_s)
+    store.write(now_ms, series)
+    proc_rows, gpu_rows = procs.snapshot()
+    live.publish({"ts": now_ms, "series": series, "procs": proc_rows, "gpu_procs": gpu_rows})
+    actuator.tick(now_ms)
+    spokes = glyph.model.update(series, now_ms,
+                               glyph.baseline.get if glyph.baseline else (lambda _s: None))
+    for action in envelope.evaluate(spokes, glyph.axis_baseline):
+        actuator.apply(action["lever"], action["target"], action["params"], action["ttl_s"])
 
 
 def tick(host, store, live, procs, actuator, now_ms: int, dt_s: float) -> None:
@@ -60,6 +87,9 @@ def run() -> None:
     control.start()
     host, gpu = build_host()
     procs = ProcCollector(nvml=gpu.nvml)   # ten sam uchwyt NVML co GpuSource
+    glyph = _GlyphState(store, now_fn=lambda: int(time.time() * 1000))
+    envelope = EnvelopeEvaluator(DEFAULT_POLICIES, config.ENVELOPE_DEBOUNCE_S,
+                                 now_fn=lambda: int(time.time() * 1000))
     period = 1.0 / config.SAMPLE_HZ
     last_mono: float | None = None
     last_rollup = 0.0
@@ -71,7 +101,10 @@ def run() -> None:
             dt_s = (start - last_mono) if last_mono is not None else 0.0
             last_mono = start
             try:
-                tick(host, store, live, procs, actuator, now_ms, dt_s)
+                if config.ENVELOPE_ENABLED:
+                    tick_envelope(host, store, live, procs, actuator, envelope, glyph, now_ms, dt_s)
+                else:
+                    tick(host, store, live, procs, actuator, now_ms, dt_s)
             except Exception:
                 log.exception("tick nieudany")
             if start - last_rollup >= config.ROLLUP_INTERVAL_S:

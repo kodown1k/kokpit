@@ -1,5 +1,7 @@
 from kokpit.actuator.audit import AuditLog
 from kokpit.actuator.engine import Actuator
+from kokpit.actuator.policy import EnvelopeEvaluator, EnvelopePolicy
+from kokpit.ui.glyph_model import SpokeScore
 from kokpit import collectord
 from kokpit.collectord import tick
 
@@ -65,3 +67,30 @@ def test_tick_runs_actuator_auto_revert(tmp_path):
 
     collectord.tick(FakeHost(), FakeStore(), FakeLive(), FakeProcs(), act, now_ms=2000, dt_s=1.0)
     assert len(reverts) == 1   # auto-reverted because 2000 >= 1000
+
+
+def test_tick_applies_fired_envelope_action(tmp_path, monkeypatch):
+    applied = []
+    class FakeActuator:
+        def apply(self, lever, target, params, ttl_s): applied.append((lever, params)); return "t"
+        def tick(self, now_ms): pass
+    # Envelope that always fires one action regardless of spokes.
+    class AlwaysFire(EnvelopeEvaluator):
+        def evaluate(self, spokes, baseline_for):
+            return [{"lever": "governor", "target": {}, "params": {"name": "powersave"}, "ttl_s": 60}]
+    env = AlwaysFire([], 0, lambda: 0)
+
+    class FakeHost:
+        def collect(self, *a): return {}
+    class FakeStore:
+        def write(self, *a): pass
+        def baseline(self, *a, **k): return None
+    class FakeLive:
+        def publish(self, snap): pass
+    class FakeProcs:
+        def snapshot(self): return [], []
+
+    from kokpit import collectord
+    collectord.tick_envelope(FakeHost(), FakeStore(), FakeLive(), FakeProcs(),
+                             FakeActuator(), env, collectord._GlyphState(), now_ms=1, dt_s=1.0)
+    assert applied == [("governor", {"name": "powersave"})]
