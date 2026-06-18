@@ -74,8 +74,8 @@ def _os_release(key: str) -> str | None:
 
 def _dmi(field: str) -> str | None:
     try:
-        v = open(f"/sys/devices/virtual/dmi/id/{field}").read().strip()
-        return v or None
+        with open(f"/sys/devices/virtual/dmi/id/{field}") as fh:
+            return fh.read().strip() or None
     except OSError:
         return None
 
@@ -117,6 +117,8 @@ def qt_version() -> str:
 def graphics_platform() -> str:
     t = os.environ.get("XDG_SESSION_TYPE")
     if not t:
+        if os.environ.get("WAYLAND_DISPLAY"):
+            return "Wayland"
         return "X11" if os.environ.get("DISPLAY") else "—"
     return {"x11": "X11", "wayland": "Wayland", "tty": "TTY"}.get(t.lower(), t)
 
@@ -224,8 +226,6 @@ def _gpu_rows() -> list[tuple[str, str]]:
 
 
 def sysinfo_sections() -> list[tuple[str, list[tuple[str, str]]]]:
-    cores = psutil.cpu_count(logical=False)
-    threads = psutil.cpu_count(logical=True)
     mem_gib = psutil.virtual_memory().total / (1024 ** 3)
     system = [
         ("Operating System", operating_system()),

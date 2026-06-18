@@ -10,7 +10,7 @@ def test_recolor_swaps_currentcolor():
 
 
 def test_all_icon_names_load():
-    assert len(ICON_NAMES) >= 11
+    assert len(ICON_NAMES) == 13               # 11 bazowych + system + motherboard
     for n in ICON_NAMES:
         assert recolored_svg(n, "#ffffff")     # każda zarejestrowana ikona ma plik SVG
 

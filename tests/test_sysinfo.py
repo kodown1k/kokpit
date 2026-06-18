@@ -28,13 +28,15 @@ def test_gather_sysinfo_kde_style_fields():
     assert "Qt Version" in labels
 
 
-def test_sysinfo_sections_have_cpu_mobo_gpu_groups():
+def test_sysinfo_sections_have_system_and_cpu_groups():
+    # SYSTEM i CPU są zawsze obecne (platform/psutil); MOTHERBOARD (DMI) i GPU (NVML)
+    # bywają puste na VM/CI — sekcja jest wtedy pomijana, więc ich nie wymuszamy.
     secs = sysinfo_sections()
     names = [name for name, _rows in secs]
+    assert "SYSTEM" in names
     assert "CPU" in names
-    assert "MOTHERBOARD" in names
-    assert any("GPU" in n or "NVIDIA" in n for n in names)
     for _name, rows in secs:
+        assert rows                                                       # pusta sekcja nie trafia na listę
         assert all(isinstance(k, str) and isinstance(v, str) for k, v in rows)
 
 
