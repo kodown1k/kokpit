@@ -58,6 +58,7 @@ def audit_path() -> Path:
 
 # --- Actuator / Envelope (spec 2026-06-18) ---
 ENVELOPE_ENABLED = False         # opt-in; auto-actions only when True
+PROPOSE_ENABLED = True           # opt-in; accumulate proposals for UI to poll
 ENVELOPE_Z_TRIGGER = 2.5         # z-score (in σ) above baseline to fire envelope
 ENVELOPE_DEBOUNCE_S = 15.0       # sustained breach before acting (anti-flap)
 ENVELOPE_DEFAULT_TTL_S = 1800.0  # auto-revert window for envelope actions

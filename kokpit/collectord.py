@@ -8,6 +8,7 @@ from kokpit.actuator.control_server import ControlServer, build_dispatch
 from kokpit.actuator.engine import Actuator
 from kokpit.actuator.levers import LEVERS
 from kokpit.actuator.policy import DEFAULT_POLICIES, EnvelopeEvaluator
+from kokpit.actuator.proposer import Proposer
 from kokpit.host import LocalHost
 from kokpit.live import LiveServer
 from kokpit.proc import ProcCollector
@@ -53,7 +54,7 @@ class _GlyphState:
         return self.baseline.get(axis_name)
 
 
-def tick_envelope(host, store, live, procs, actuator, envelope, glyph, now_ms, dt_s):
+def tick_envelope(host, store, live, procs, actuator, envelope, glyph, now_ms, dt_s, proposer=None):
     series = host.collect(now_ms, dt_s)
     store.write(now_ms, series)
     proc_rows, gpu_rows = procs.snapshot()
@@ -63,6 +64,8 @@ def tick_envelope(host, store, live, procs, actuator, envelope, glyph, now_ms, d
                                glyph.baseline.get if glyph.baseline else (lambda _s: None))
     for action in envelope.evaluate(spokes, glyph.axis_baseline):
         actuator.apply(action["lever"], action["target"], action["params"], action["ttl_s"])
+    if proposer is not None:
+        proposer.propose(spokes, glyph.axis_baseline)
 
 
 def tick(host, store, live, procs, actuator, now_ms: int, dt_s: float) -> None:
@@ -83,7 +86,8 @@ def run() -> None:
     live.start()
     audit = AuditLog(config.audit_path())
     actuator = Actuator(LEVERS, audit, now_fn=lambda: int(time.time() * 1000))
-    control = ControlServer(config.control_socket_path(), build_dispatch(actuator))
+    proposer = Proposer(DEFAULT_POLICIES, now_fn=lambda: int(time.time() * 1000))
+    control = ControlServer(config.control_socket_path(), build_dispatch(actuator, proposer))
     control.start()
     host, gpu = build_host()
     procs = ProcCollector(nvml=gpu.nvml)   # ten sam uchwyt NVML co GpuSource
@@ -102,7 +106,11 @@ def run() -> None:
             last_mono = start
             try:
                 if config.ENVELOPE_ENABLED:
-                    tick_envelope(host, store, live, procs, actuator, envelope, glyph, now_ms, dt_s)
+                    tick_envelope(host, store, live, procs, actuator, envelope, glyph, now_ms, dt_s,
+                                  proposer=proposer)
+                elif config.PROPOSE_ENABLED:
+                    tick_envelope(host, store, live, procs, actuator, envelope, glyph, now_ms, dt_s,
+                                  proposer=proposer)
                 else:
                     tick(host, store, live, procs, actuator, now_ms, dt_s)
             except Exception:
