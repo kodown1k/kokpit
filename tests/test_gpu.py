@@ -37,3 +37,8 @@ def test_gpu_no_nvml_returns_empty():
     src = GpuSource.__new__(GpuSource)   # pomiń __init__/import
     src._nvml = None
     assert src.sample(now_ms=0, dt_s=1.0) == {}
+
+
+def test_gpu_exposes_nvml_handle():
+    n = _fake_nvml()
+    assert GpuSource(nvml=n).nvml is n      # publiczny uchwyt do współdzielenia (np. ProcCollector)
