@@ -272,9 +272,69 @@ def test_safety_revert_skips_when_audit_empty(tmp_path):
 # IMPORTANT #4 — PROPOSE_ENABLED default False + routing
 # ---------------------------------------------------------------------------
 
+def test_run_reset_logs_warning_on_nonzero_returncode(tmp_path, caplog):
+    """_run_reset logs a warning when the subprocess returns non-zero."""
+    import subprocess
+    import types
+    from kokpit.collectord import _run_reset
+
+    # Build a fake completed process with non-zero returncode
+    fake_cp = types.SimpleNamespace(returncode=1, stderr=b"permission denied")
+
+    with caplog.at_level("WARNING", logger="kokpit.collectord"):
+        with __import__("unittest.mock", fromlist=["patch"]).patch(
+            "kokpit.collectord.subprocess.run", return_value=fake_cp
+        ):
+            _run_reset(["pkexec", "kokpit-actl-helper", "gpu-power-reset", "0"])
+
+    assert any("_run_reset failed" in r.message for r in caplog.records), (
+        "Expected a WARNING log from _run_reset on non-zero returncode"
+    )
+
+
 def test_propose_enabled_default_is_false():
     """PROPOSE_ENABLED must default to False (opt-in)."""
     assert config.PROPOSE_ENABLED is False
+
+
+def test_axis_baseline_caches_list_series(tmp_path):
+    """_GlyphState must cache list_series() and not call it on every axis_baseline invocation."""
+    store = Store(tmp_path / "t.db")
+    now_ms = 1_700_000_000_000
+
+    store.conn.execute("INSERT INTO series_dict(name) VALUES ('gpu.0.temp')")
+    sid = store.conn.execute("SELECT id FROM series_dict WHERE name='gpu.0.temp'").fetchone()[0]
+    bucket = (now_ms // 60_000) * 60_000
+    store.conn.execute(
+        "INSERT INTO rollup_1m(bucket, series_id, vmin, vmax, vavg, vlast) VALUES (?,?,?,?,?,?)",
+        (bucket, sid, 65.0, 75.0, 70.0, 70.0),
+    )
+    store.conn.commit()
+
+    call_count = [0]
+    original_list_series = store.list_series
+
+    def counting_list_series(*args, **kwargs):
+        call_count[0] += 1
+        return original_list_series(*args, **kwargs)
+
+    store.list_series = counting_list_series
+
+    original_min = config.BASELINE_MIN_SAMPLES
+    config.BASELINE_MIN_SAMPLES = 1
+    try:
+        glyph = collectord._GlyphState(store, now_fn=lambda: now_ms)
+        # Call axis_baseline N times less than _SERIES_CACHE_REFRESH_TICKS
+        N = collectord._SERIES_CACHE_REFRESH_TICKS - 1
+        for _ in range(N):
+            glyph.axis_baseline("GPU temp")
+        # list_series should have been called exactly once (cache populated on first call)
+        assert call_count[0] == 1, (
+            f"Expected list_series called once for {N} axis_baseline calls, got {call_count[0]}"
+        )
+    finally:
+        config.BASELINE_MIN_SAMPLES = original_min
+        store.close()
 
 
 def test_run_routing_uses_plain_tick_when_both_disabled(monkeypatch):

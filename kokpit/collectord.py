@@ -49,12 +49,28 @@ def build_host() -> tuple[LocalHost, GpuSource]:
     return host, gpu
 
 
+_SERIES_CACHE_REFRESH_TICKS = 60  # refresh list_series() cache every N axis_baseline calls
+
+
 class _GlyphState:
     """Holds the daemon-side GlyphModel + BaselineCache between ticks."""
     def __init__(self, store=None, now_fn=None):
         self.model = GlyphModel()
         self._store = store
         self.baseline = BaselineCache(store, now_fn) if store is not None else None
+        self._series_cache: list[str] = []
+        self._series_cache_tick = 0
+
+    def _get_series(self) -> list[str]:
+        """Return cached list_series(); refresh every N calls or when count changes."""
+        if self._store is None:
+            return []
+        self._series_cache_tick += 1
+        if self._series_cache_tick >= _SERIES_CACHE_REFRESH_TICKS or not self._series_cache:
+            fresh = self._store.list_series()
+            self._series_cache = fresh
+            self._series_cache_tick = 0
+        return self._series_cache
 
     def axis_baseline(self, axis_name):
         """Resolve axis name to the best matching series baseline.
@@ -69,9 +85,9 @@ class _GlyphState:
         if pred is None:
             # Unknown axis: fall back to direct cache lookup
             return self.baseline.get(axis_name)
-        # Iterate all series, collect baselines for matching ones, return hottest
+        # Iterate all series (cached), collect baselines for matching ones, return hottest
         best = None
-        for series in self._store.list_series():
+        for series in self._get_series():
             if pred(series):
                 b = self.baseline.get(series)
                 if b is not None:
@@ -105,7 +121,10 @@ def tick(host, store, live, procs, actuator, now_ms: int, dt_s: float) -> None:
 
 def _run_reset(argv: list[str]) -> None:
     """Run a privileged reset command; log on failure, never raise."""
-    subprocess.run(argv, capture_output=True, check=False)
+    cp = subprocess.run(argv, capture_output=True, check=False)
+    if cp.returncode != 0:
+        log.warning("_run_reset failed: argv=%s rc=%d stderr=%r",
+                    argv, cp.returncode, cp.stderr.decode(errors="replace").strip())
 
 
 def safety_revert_on_startup(audit, now_fn, _runner=None) -> None:
