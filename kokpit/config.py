@@ -63,5 +63,6 @@ ENVELOPE_Z_TRIGGER = 2.5         # z-score (in σ) above baseline to fire envelo
 ENVELOPE_DEBOUNCE_S = 15.0       # sustained breach before acting (anti-flap)
 ENVELOPE_DEFAULT_TTL_S = 1800.0  # auto-revert window for envelope actions
 GPU_POWER_FLOOR_W = 100          # never cap GPU below this
+GPU_POWER_CEILING_W = 300        # full-power reference for UI slider scaling
 RENICE_BACKGROUND = 15           # default nice for "make it quiet" demotions
 STARTUP_GOVERNOR = "schedutil"   # safe governor for startup safety-revert

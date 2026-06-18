@@ -252,7 +252,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_cap_requested(self, axis: str, fraction: float) -> None:
         if axis in ("GPU", "VRAM", "GPU temp"):
             floor = config.GPU_POWER_FLOOR_W
-            watts = int(floor + fraction * (300 - floor))
+            watts = int(floor + fraction * (config.GPU_POWER_CEILING_W - floor))
             self._ctl.request("apply", {"lever": "gpu_power", "target": {"index": 0},
                                         "params": {"watts": watts},
                                         "ttl_s": config.ENVELOPE_DEFAULT_TTL_S})

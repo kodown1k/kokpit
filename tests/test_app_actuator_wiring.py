@@ -1,3 +1,4 @@
+from kokpit import config
 from kokpit.ui.app import MainWindow
 
 
@@ -24,3 +25,23 @@ def test_command_maps_to_intent(qapp):
     win._ctl = FakeCtl()
     MainWindow._on_command(win, "cicho na 10 min")
     assert win._ctl.calls[-1] == ("intent", {"text": "cicho na 10 min"})
+
+
+def test_gpu_power_ceiling_config_constant_exists():
+    """GPU_POWER_CEILING_W must be defined in config (replaces magic literal 300)."""
+    assert hasattr(config, "GPU_POWER_CEILING_W"), "config.GPU_POWER_CEILING_W is missing"
+    assert config.GPU_POWER_CEILING_W == 300
+
+
+def test_cap_requested_uses_config_ceiling(qapp, monkeypatch):
+    """_on_cap_requested must use config.GPU_POWER_CEILING_W, not literal 300."""
+    monkeypatch.setattr(config, "GPU_POWER_CEILING_W", 250)
+    monkeypatch.setattr(config, "GPU_POWER_FLOOR_W", 50)
+    win = MainWindow.__new__(MainWindow)
+    win._ctl = FakeCtl()
+    # fraction=1.0 → watts should be floor + 1.0*(ceiling-floor) = 50 + 200 = 250
+    MainWindow._on_cap_requested(win, "GPU temp", 1.0)
+    call_args = win._ctl.calls[-1][1]
+    assert call_args["params"]["watts"] == 250, (
+        f"Expected watts=250 with ceiling=250, got {call_args['params']['watts']}"
+    )
