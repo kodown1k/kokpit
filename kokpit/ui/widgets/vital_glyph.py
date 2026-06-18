@@ -28,7 +28,7 @@ class VitalGlyph(QtWidgets.QWidget):
         self.setMinimumSize(280, 280)
         self._target: list[float] = []
         self._current: list[float] = []
-        self._trail: list[tuple[tuple[float, ...], int]] = []
+        self._trail: list[tuple[tuple[float, ...], float]] = []
         self._timer = QtCore.QTimer(self)
         self._timer.setInterval(TRAIL_INTERVAL_MS)
         self._timer.timeout.connect(self._advance)
@@ -46,6 +46,7 @@ class VitalGlyph(QtWidgets.QWidget):
         # Snap current on first frame or if spoke count changed
         if not self._current or len(self._current) != len(self._target):
             self._current = list(self._target)
+            self._trail = []   # stare wpisy mają radii innej długości → usuń (uniknij IndexError)
         # Start timer to animate toward target
         if not self._timer.isActive():
             self._timer.start()
@@ -64,14 +65,13 @@ class VitalGlyph(QtWidgets.QWidget):
             if abs(self._target[i] - self._current[i]) >= SETTLE_EPS:
                 moving = True
 
-        # Only append trail snapshot if actually moving
+        # Decay existing entries first, THEN append the fresh full-alpha snapshot,
+        # so a new ghost starts at TRAIL_ALPHA0 (nie ~86) — i tylko gdy faktycznie się rusza.
+        decay = TRAIL_ALPHA0 / TRAIL_TICKS
+        self._trail = [(r, a - decay) for r, a in self._trail if a - decay > 6]
         if moving:
             radii = tuple(self.vertex_radius(self._current[i]) for i in range(n))
             self._trail.append((radii, TRAIL_ALPHA0))
-
-        # Decay existing trail entries
-        decay = TRAIL_ALPHA0 / TRAIL_TICKS
-        self._trail = [(r, a - decay) for r, a in self._trail if a - decay > 6]
 
         # Cap buffer length
         if len(self._trail) > TRAIL_TICKS:

@@ -219,3 +219,24 @@ def test_paintEvent_with_trail_no_crash(qapp):
     img.fill(0)
     w.render(img)
     assert img.width() == 200
+
+
+def test_set_spokes_count_change_clears_trail(qapp):
+    """Zmiana liczby szprych czyści trail — stare radii innej długości nie zostają
+    (inaczej radii[i] w paintEvent rzuciłoby IndexError)."""
+    from PySide6 import QtGui
+    from kokpit.ui.widgets.vital_glyph import VitalGlyph
+    w = VitalGlyph()
+    w.resize(200, 200)
+    w.set_spokes([make_spoke(0.0) for _ in range(9)], False)
+    w.set_spokes([make_spoke(0.9)] + [make_spoke(0.1) for _ in range(8)], False)
+    for _ in range(5):
+        w._advance()
+    assert len(w._trail) > 0
+    # 9 → 3 szprychy: trail musi zostać wyczyszczony przy snapowaniu _current
+    w.set_spokes([make_spoke(0.5) for _ in range(3)], False)
+    assert w._trail == []
+    img = QtGui.QImage(200, 200, QtGui.QImage.Format_ARGB32)
+    img.fill(0)
+    w.render(img)   # nie crashuje mimo niedawnego 9-szprychowego trailu
+    assert img.width() == 200
