@@ -7,7 +7,9 @@ from kokpit import config
 from kokpit.ui.history_model import HistoryModel
 from kokpit.ui.live_client import LiveClient
 from kokpit.ui.theme.icons import neon_pixmap
-from kokpit.ui.theme.palette import NEON_CYAN, NEON_LIME, NEON_MAGENTA, apply_glow, qss_path
+from kokpit.ui.theme.palette import (
+    NEON_CYAN, NEON_LIME, NEON_MAGENTA, app_icon_path, apply_glow, qss_path,
+)
 from kokpit.ui.widgets.core_ring_grid import CoreRingGrid
 from kokpit.ui.widgets.gpu_panel import GpuPanel, expected_gpu_indices
 from kokpit.ui.widgets.hero_column import HeroColumn
@@ -16,6 +18,7 @@ from kokpit.ui.glyph_model import BaselineCache, GlyphModel
 from kokpit.ui.widgets.gpu_proc_table import GpuProcTable
 from kokpit.ui.widgets.proc_table import ProcTable
 from kokpit.ui.widgets.disk_usage import DiskUsage
+from kokpit.ui.widgets.dual_ring_gauge import DualRingGauge
 from kokpit.ui.widgets.sparkline import Sparkline
 from kokpit.ui.widgets.sysinfo import SysInfo
 from kokpit.ui.widgets.vital_glyph import VitalGlyph
@@ -72,6 +75,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, live: LiveClient, model: HistoryModel, gpu_indices: list[int]) -> None:
         super().__init__()
         self.setWindowTitle("kokpit")
+        self.setWindowIcon(QtGui.QIcon(app_icon_path()))
         self._live = live
         self._cur_window_s = 3600
         central = QtWidgets.QWidget()
@@ -82,6 +86,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._net_key = primary_net_key(model.available_series("net."))
         self._disk_key = first_metric_key(model.available_series("disk."), ".read_bps")
         gpu0 = gpu_indices[0] if gpu_indices else 0
+
+        # PCI adapter (wifi) + płyta główna (chipset/ACPI) — wewn. ring spada na najgorętszy
+        # dysk NVMe, gdy host nie wystawia sensora płyty (np. brak acpitz/pch).
+        thermal_series = set(model.available_series("thermal."))
+        self._has_board = "thermal.board" in thermal_series
+        self._temps = DualRingGauge(
+            "TEMPS", "PCI", "MB" if self._has_board else "SSD",
+            NEON_MAGENTA, NEON_LIME, high=75, crit=90)
 
         self._hero = HeroColumn(gpu0)
         self._core = CoreRingGrid()
@@ -173,7 +185,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # nowy bento: hero-ringi w rzędzie u góry, niżej [małe ringi | net/disk+glyph],
         # potem history (pełna szerokość), tabele i kontrolki
-        grid.addWidget(self._hero, 0, 0, 1, 2)
+        # pas hero: 4 ringi CPU/GPU/RAM/VRAM + kafel dwóch koncentrycznych ringów temp
+        top = QtWidgets.QWidget()
+        top_lay = QtWidgets.QHBoxLayout(top)
+        top_lay.setContentsMargins(0, 0, 0, 0)
+        top_lay.setSpacing(8)
+        top_lay.addWidget(self._hero, 4)
+        top_lay.addWidget(self._temps, 1)
+        grid.addWidget(top, 0, 0, 1, 2)
         grid.addWidget(left, 1, 0)
         grid.addWidget(right, 1, 1)
         grid.addWidget(self._hist, 2, 0, 1, 2)
@@ -224,6 +243,13 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_snapshot(self, snap: dict) -> None:
         s = snap.get("series", {})
         self._hero.update_snapshot(snap)
+        # PCI adapter (wifi) na zewn. ringu; płyta (board) lub najgorętszy NVMe na wewn.
+        self._temps.set_outer(s.get("thermal.wifi"))
+        board = s.get("thermal.board")
+        if board is None:
+            nvme = [v for k, v in s.items() if k.startswith("thermal.nvme.") and v is not None]
+            board = max(nvme) if nvme else None
+        self._temps.set_inner(board)
         self._core.set_util(s)
         self._core.set_temp(s)
         self._sysinfo.refresh()
@@ -241,6 +267,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
 def main() -> int:
     app = QtWidgets.QApplication(sys.argv)
+    app.setWindowIcon(QtGui.QIcon(app_icon_path()))   # ikona aplikacji (okno/pasek/dock)
     try:
         with open(qss_path()) as fh:
             app.setStyleSheet(fh.read())

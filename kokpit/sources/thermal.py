@@ -49,6 +49,7 @@ class ThermalSource:
         except OSError:
             return out
         nvme_idx = 0
+        acpitz = pch = None
         for chip in chips:
             name = _read_text(chip / "name")
             if name is None:
@@ -60,6 +61,13 @@ class ThermalSource:
                     nvme_idx += 1
             elif "iwlwifi" in name or "wifi" in name:
                 self._read_wifi(chip, out)
+            elif name.startswith("pch"):            # chipset (PCH) — sensor płyty głównej
+                pch = _read_temp(chip / "temp1_input")
+            elif name == "acpitz":                  # ambient ACPI thermal zone (fallback MB)
+                acpitz = _read_temp(chip / "temp1_input")
+        board = pch if pch is not None else acpitz  # chipset > ambient
+        if board is not None:
+            out["thermal.board"] = board
         return out
 
     @staticmethod

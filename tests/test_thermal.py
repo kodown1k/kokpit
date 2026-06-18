@@ -77,3 +77,22 @@ def test_thermal_unreadable_temp_skipped(tmp_path):
     _mkchip(tmp_path, 0, "coretemp", {"temp1": ("Package id 0", 0)})
     (tmp_path / "hwmon0" / "temp1_input").write_text("not_a_number\n")
     assert ThermalSource(root=tmp_path).sample(now_ms=0, dt_s=1.0) == {}
+
+
+def test_thermal_board_from_acpitz(tmp_path):
+    _mkchip(tmp_path, 0, "acpitz", {"temp1": ("", 45000)})
+    out = ThermalSource(root=tmp_path).sample(now_ms=0, dt_s=1.0)
+    assert out["thermal.board"] == 45.0
+
+
+def test_thermal_board_prefers_pch_over_acpitz(tmp_path):
+    _mkchip(tmp_path, 0, "acpitz", {"temp1": ("", 45000)})
+    _mkchip(tmp_path, 1, "pch_cannonlake", {"temp1": ("", 61000)})
+    out = ThermalSource(root=tmp_path).sample(now_ms=0, dt_s=1.0)
+    assert out["thermal.board"] == 61.0       # chipset (pch) > ambient (acpitz)
+
+
+def test_thermal_no_board_sensor_absent(tmp_path):
+    _mkchip(tmp_path, 0, "nvme", {"temp1": ("Composite", 50000)})
+    out = ThermalSource(root=tmp_path).sample(now_ms=0, dt_s=1.0)
+    assert "thermal.board" not in out
