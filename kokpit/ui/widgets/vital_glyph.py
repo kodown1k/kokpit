@@ -3,7 +3,7 @@ import math
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from kokpit.ui.glyph_model import SpokeScore
-from kokpit.ui.theme.palette import DIM_FG, util_rgb
+from kokpit.ui.theme.palette import DIM_FG, round_pen, util_rgb
 
 GLOW_THRESHOLD = 0.5
 
@@ -59,16 +59,32 @@ class VitalGlyph(QtWidgets.QWidget):
         r, g, b = util_rgb(peak)
         fill = QtGui.QColor(r, g, b, 70 if not self._calibrating else 35)
         edge = QtGui.QColor(r, g, b)
+        # fill pass (translucent)
         p.setBrush(QtGui.QBrush(fill))
-        p.setPen(QtGui.QPen(edge, 2.0))
+        p.setPen(QtCore.Qt.NoPen)
+        p.drawPolygon(poly)
+        # bloom pass (szeroki, półprzezroczysty) → miękka poświata krawędzi
+        glow = QtGui.QColor(edge)
+        glow.setAlpha(70)
+        bloom_pen = round_pen(glow, 12.0)
+        bloom_pen.setJoinStyle(QtCore.Qt.RoundJoin)
+        p.setPen(bloom_pen)
+        p.setBrush(QtCore.Qt.NoBrush)
+        p.drawPolygon(poly)
+        # crisp pass (wąski, pełny alpha) → jasny rdzeń krawędzi
+        crisp_pen = round_pen(edge, 2.5)
+        crisp_pen.setJoinStyle(QtCore.Qt.RoundJoin)
+        p.setPen(crisp_pen)
         p.drawPolygon(poly)
         # glow per-ramię: drugi, grubszy/półprzezroczysty obrys wierzchołków > próg
         for i, s in enumerate(self._spokes):
             if s.score >= GLOW_THRESHOLD:
                 gr, gg, gb = util_rgb(s.score)
-                p.setPen(QtGui.QPen(QtGui.QColor(gr, gg, gb, 120), 6.0))
+                vtx_glow = QtGui.QColor(gr, gg, gb, 90)
+                vtx_pen = round_pen(vtx_glow, 10.0)
+                p.setPen(vtx_pen)
                 v = self._vertex(cx, cy, i, n, self.vertex_radius(s.score))
-                p.drawEllipse(v, 4.0, 4.0)
+                p.drawEllipse(v, 5.0, 5.0)
         # podpisy ramion: kod osi + wartość na stałym promieniu poza max ramieniem
         half = min(cx, cy)
         label_r = (self.R_BASE + self.R_SPAN) * (half / 130.0) + 14.0

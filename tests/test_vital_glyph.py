@@ -92,3 +92,33 @@ def test_set_spokes_spiked_geometry(qapp):
     radii = [w.vertex_radius(s.score) for s in w.current_spokes()]
     assert max(radii) == w.vertex_radius(1.0)          # CPU temp wydłużone
     assert radii.count(VitalGlyph.R_BASE) == 8         # reszta spokojna
+
+
+def test_render_spiked_neon_no_crash(qapp):
+    """Spiked glyph (score >= GLOW_THRESHOLD) must render via the two-pass
+    neon stroke (bloom + crisp) without crashing and produce a non-empty image."""
+    from PySide6 import QtGui
+    from kokpit.ui.widgets.vital_glyph import VitalGlyph
+    w = VitalGlyph()
+    w.resize(300, 300)
+    spokes = [
+        SpokeScore("CPU", 0.9, 90.0, "circadian", "CPU 90%"),
+        SpokeScore("RAM", 0.85, 85.0, None, "RAM 85%"),
+        SpokeScore("Swap", 0.0, 0.0, None, "SWP 0M"),
+        SpokeScore("GPU", 0.7, 70.0, None, "GPU 70%"),
+        SpokeScore("VRAM", 0.6, 60.0, None, "VRAM 60%"),
+        SpokeScore("CPU temp", 0.95, 92.0, None, "CPU° 92°"),
+        SpokeScore("GPU temp", 0.55, 71.0, None, "GPU° 71°"),
+        SpokeScore("Disk IO", 0.1, 8_000_000.0, None, "DISK 8"),
+        SpokeScore("Net IO", 0.0, 500_000.0, None, "NET 0"),
+    ]
+    w.set_spokes(spokes, calibrating=False)
+    img = QtGui.QImage(300, 300, QtGui.QImage.Format_ARGB32)
+    img.fill(0)
+    w.render(img)   # exercises bloom + crisp neon stroke path
+    assert img.width() == 300
+    # at least some pixels were painted (neon glow touches >0 pixels)
+    painted = sum(1 for y in range(img.height())
+                  for x in range(img.width())
+                  if (img.pixel(x, y) >> 24) & 0xFF > 0)
+    assert painted > 0, "neon render produced a blank image"
