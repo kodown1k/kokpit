@@ -4,6 +4,7 @@ import time
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from kokpit import config
+from kokpit.ui.ctl_client import ControlClient
 from kokpit.ui.history_model import HistoryModel
 from kokpit.ui.live_client import LiveClient
 from kokpit.ui.theme.icons import neon_pixmap
@@ -19,6 +20,7 @@ from kokpit.ui.widgets.gpu_proc_table import GpuProcTable
 from kokpit.ui.widgets.proc_table import ProcTable
 from kokpit.ui.widgets.disk_usage import DiskUsage
 from kokpit.ui.widgets.dual_ring_gauge import DualRingGauge
+from kokpit.ui.widgets.proposal_bar import ProposalBar
 from kokpit.ui.widgets.sparkline import Sparkline
 from kokpit.ui.widgets.sysinfo import SysInfo
 from kokpit.ui.widgets.vital_glyph import VitalGlyph
@@ -106,6 +108,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self._glyph = VitalGlyph()
         self._glyph_model = GlyphModel()
         self._baseline = BaselineCache(model.store, now_fn=_now_ms)
+        self._ctl = ControlClient(str(config.control_socket_path()))
+        self._bar = ProposalBar()
+        self._glyph.capRequested.connect(self._on_cap_requested)
+        self._bar.confirmed.connect(self._on_confirm)
+        self._bar.denied.connect(self._on_deny)
+        self._bar.commandEntered.connect(self._on_command)
+        self._prop_timer = QtCore.QTimer(self)
+        self._prop_timer.setInterval(2000)
+        self._prop_timer.timeout.connect(self._poll_proposals)
+        self._prop_timer.start()
 
         hist_series = ["cpu.loadavg.1", f"gpu.{gpu0}.util", "mem.used"]
         hist_formats = {
@@ -163,6 +175,7 @@ class MainWindow(QtWidgets.QMainWindow):
         zg = QtWidgets.QVBoxLayout(zone_glyph)
         zg.setContentsMargins(0, 0, 0, 0)
         zg.addWidget(self._glyph, 1)
+        zg.addWidget(self._bar)
 
         # ZONA 3 — I/O & STORAGE (prawa): sparkline'y NET/DISK jeden pod drugim + zajętość
         zone_io = QtWidgets.QWidget()
@@ -235,6 +248,33 @@ class MainWindow(QtWidgets.QMainWindow):
         color = NEON_LIME if ok else "#ff2a2a"
         self._status.setStyleSheet(f"color:{color};font-weight:bold;letter-spacing:1px;")
         self._status_glow.setColor(QtGui.QColor(color))   # ref do QGraphicsDropShadowEffect (typed)
+
+    def _on_cap_requested(self, axis: str, fraction: float) -> None:
+        if axis in ("GPU", "VRAM", "GPU temp"):
+            floor = config.GPU_POWER_FLOOR_W
+            watts = int(floor + fraction * (300 - floor))
+            self._ctl.request("apply", {"lever": "gpu_power", "target": {"index": 0},
+                                        "params": {"watts": watts},
+                                        "ttl_s": config.ENVELOPE_DEFAULT_TTL_S})
+        elif axis in ("CPU", "CPU temp"):
+            name = "powersave" if fraction < 0.5 else "performance"
+            self._ctl.request("apply", {"lever": "governor", "target": {},
+                                        "params": {"name": name},
+                                        "ttl_s": config.ENVELOPE_DEFAULT_TTL_S})
+
+    def _on_command(self, text: str) -> None:
+        self._ctl.request("intent", {"text": text})
+
+    def _poll_proposals(self) -> None:
+        props = self._ctl.poll_proposals()
+        if props:
+            self._bar.show_proposal(props[0]["id"], props[0]["text"])
+
+    def _on_confirm(self, pid: str) -> None:
+        self._ctl.request("confirm", {"id": pid})
+
+    def _on_deny(self, pid: str) -> None:
+        self._ctl.request("deny", {"id": pid})
 
     def _on_snapshot(self, snap: dict) -> None:
         s = snap.get("series", {})
