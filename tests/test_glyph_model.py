@@ -75,3 +75,56 @@ def test_max_temp_ratio():
     assert gm.max_temp_ratio(s, pred, 95.0) == 1.0     # 95/95
     assert gm.max_temp_ratio({"x": 1.0}, pred, 95.0) is None
     assert gm.max_temp_ratio({"thermal.coretemp.0.pkg": 95.0}, pred, 0.0) is None  # limit=0 → None
+
+
+def _const_provider(table):
+    return lambda series: table.get(series)
+
+
+def test_update_returns_nine_spokes_in_order():
+    m = gm.GlyphModel()
+    spokes = m.update({}, 1_700_000_000_000, _const_provider({}))
+    assert [s.name for s in spokes] == gm.SPOKE_NAMES
+    assert len(spokes) == 9
+
+
+def test_update_cpu_uses_zscore_from_loadavg():
+    m = gm.GlyphModel()
+    prov = _const_provider({"cpu.loadavg.1": (2.0, 1.0, 12, "circadian")})
+    # EWMA: pierwsza próbka = wartość wprost, więc value_sm=5.0 → z=(5-2)/1/3=1.0
+    spokes = {s.name: s for s in m.update({"cpu.loadavg.1": 5.0}, 1_700_000_000_000, prov)}
+    assert spokes["CPU"].score == 1.0
+    assert spokes["CPU"].tier == "circadian"
+
+
+def test_update_ram_proximity_without_baseline():
+    m = gm.GlyphModel()
+    series = {"mem.used": 95.0, "mem.total": 100.0}      # 95% pełne
+    spokes = {s.name: s for s in m.update(series, 1_700_000_000_000, _const_provider({}))}
+    assert spokes["RAM"].score == 0.95                    # proximity ratuje brak baseline
+    assert spokes["RAM"].tier is None
+
+
+def test_update_disk_worst_of_family():
+    m = gm.GlyphModel()
+    prov = _const_provider({
+        "disk.nvme0n1.read_bps": (100.0, 10.0, 12, "circadian"),   # spokojny
+        "disk.sda.read_bps":     (10.0, 5.0, 12, "circadian"),     # value 40 → z=(40-10)/5/3=2 → 1.0
+    })
+    series = {"disk.nvme0n1.read_bps": 100.0, "disk.sda.read_bps": 40.0,
+              "disk.root.used_pct": 80.0}                  # used_pct NIE w rodzinie IO
+    spokes = {s.name: s for s in m.update(series, 1_700_000_000_000, prov)}
+    assert spokes["Disk IO"].score == 1.0                  # worst-of = sda
+
+
+def test_update_cold_start_calibrating_flag():
+    m = gm.GlyphModel()
+    m.update({"cpu.loadavg.1": 1.0}, 1_700_000_000_000, _const_provider({}))  # provider zawsze None
+    assert m.calibrating is True
+
+
+def test_update_not_calibrating_when_any_baseline():
+    m = gm.GlyphModel()
+    prov = _const_provider({"cpu.loadavg.1": (2.0, 1.0, 12, "global")})
+    m.update({"cpu.loadavg.1": 5.0}, 1_700_000_000_000, prov)
+    assert m.calibrating is False

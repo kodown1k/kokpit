@@ -5,6 +5,8 @@ max(worst-of z-score po członkach rodziny, proximity). Spec 2026-06-18.
 """
 import math
 import re
+from dataclasses import dataclass
+from typing import Callable, Optional
 
 from kokpit import config
 
@@ -80,3 +82,83 @@ def max_temp_ratio(series: dict, pred, limit: float):
         return None
     vals = [v / limit for k, v in series.items() if pred(k) and v is not None]
     return max(vals) if vals else None
+
+
+CPU_TEMP_LIMIT = 95.0
+GPU_TEMP_LIMIT = 90.0
+
+
+@dataclass
+class SpokeScore:
+    name: str
+    score: float
+    value: Optional[float]
+    tier: Optional[str]
+
+
+def _members_suffix(prefix: str, suffix: str):
+    return lambda keys: [k for k in keys if k.startswith(prefix) and k.endswith(suffix)]
+
+
+def _coretemp_pkg(k: str) -> bool:
+    return k.startswith("thermal.coretemp.") and k.endswith(".pkg")
+
+
+def _gpu_temp(k: str) -> bool:
+    return k.startswith("gpu.") and k.endswith(".temp")
+
+
+# (nazwa, z_members(keys)->list, proximity(series)->float|None)
+_SPOKES = (
+    ("CPU",      lambda keys: [k for k in keys if k == "cpu.loadavg.1"], lambda s: None),
+    ("RAM",      lambda keys: [k for k in keys if k == "mem.used"],
+                 lambda s: ratio(s, "mem.used", "mem.total")),
+    ("Swap",     lambda keys: [k for k in keys if k == "swap.used"], lambda s: None),
+    ("GPU",      _members_suffix("gpu.", ".util"), lambda s: None),
+    ("VRAM",     _members_suffix("gpu.", ".vram_used"), lambda s: gpu_vram_ratio(s)),
+    ("CPU temp", lambda keys: [k for k in keys if _coretemp_pkg(k)],
+                 lambda s: max_temp_ratio(s, _coretemp_pkg, CPU_TEMP_LIMIT)),
+    ("GPU temp", lambda keys: [k for k in keys if _gpu_temp(k)],
+                 lambda s: max_temp_ratio(s, _gpu_temp, GPU_TEMP_LIMIT)),
+    ("Disk IO",  lambda keys: disk_io_members(keys), lambda s: None),
+    ("Net IO",   lambda keys: [k for k in keys
+                               if k.startswith("net.") and k.endswith((".rx_bps", ".tx_bps"))],
+                 lambda s: None),
+)
+
+SPOKE_NAMES = [name for name, _z, _p in _SPOKES]
+
+
+class GlyphModel:
+    """Stanowy (EWMA per-seria) builder ramion glifu. Zero Qt."""
+
+    def __init__(self) -> None:
+        self._sm: dict = {}                 # seria → wygładzona live
+        self._alpha = ewma_alpha()
+        self.calibrating = True
+
+    def update(self, series: dict, now_ms: int, provider) -> list:
+        keys = list(series.keys())
+        any_baseline = False
+        spokes = []
+        for name, z_members, proximity in _SPOKES:
+            best_z = 0.0
+            best_val = None
+            best_tier = None
+            for m in z_members(keys):
+                v = series.get(m)
+                if v is None:
+                    continue
+                self._sm[m] = ewma(self._sm.get(m), v, self._alpha)
+                base = provider(m)
+                if base is not None:
+                    any_baseline = True
+                z = z_norm(self._sm[m], base)
+                if z >= best_z or best_val is None:
+                    best_z, best_val = z, v
+                    best_tier = base[3] if base is not None else best_tier
+            prox = proximity(series)
+            score = max(best_z, 0.0 if prox is None else clamp01(prox))
+            spokes.append(SpokeScore(name=name, score=score, value=best_val, tier=best_tier))
+        self.calibrating = not any_baseline
+        return spokes
