@@ -64,7 +64,44 @@ class IoniceLever(Lever):
         self._run(["ionice", "-c", "2", "-n", "4", "-p", str(token_state["pid"])])
 
 
+def _current_governor() -> str:
+    try:
+        with open("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+class GpuPowerLever(Lever):
+    id = "gpu_power"
+    requires_privilege = True
+
+    def apply(self, target: dict, params: dict) -> dict:
+        idx = int(target["index"])
+        self._run(["pkexec", "kokpit-actl-helper", "gpu-power", str(idx), str(int(params["watts"]))])
+        return {"index": idx}
+
+    def revert(self, token_state: dict) -> None:
+        self._run(["pkexec", "kokpit-actl-helper", "gpu-power-reset", str(token_state["index"])])
+
+
+class GovernorLever(Lever):
+    id = "governor"
+    requires_privilege = True
+
+    def apply(self, target: dict, params: dict) -> dict:
+        prior = _current_governor()
+        self._run(["pkexec", "kokpit-actl-helper", "governor", str(params["name"])])
+        return {"prior": prior}
+
+    def revert(self, token_state: dict) -> None:
+        if token_state.get("prior"):
+            self._run(["pkexec", "kokpit-actl-helper", "governor", token_state["prior"]])
+
+
 LEVERS: dict[str, Lever] = {
     "renice": ReniceLever(),
     "ionice": IoniceLever(),
+    "gpu_power": GpuPowerLever(),
+    "governor": GovernorLever(),
 }
