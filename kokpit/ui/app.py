@@ -85,7 +85,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._hero = HeroColumn(gpu0)
         self._core = CoreRingGrid()
         self._swap = Gauge("SWAP", " MB", high=4096, crit=8192, accent=NEON_CYAN)
-        self._net = Sparkline("NET rx", window_s=120, color=(61, 240, 255), icon="net-rx")
+        self._net = Sparkline("NET rx (KB/s)", window_s=120, color=(61, 240, 255),
+                              icon="net-rx", scale=1.0 / 1024)
         self._disk = Sparkline("DISK r", window_s=120, color=(57, 255, 20), icon="disk-read")
         self._procs = ProcTable()
         self._gpu_procs = GpuProcTable()
@@ -95,9 +96,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._baseline = BaselineCache(model.store, now_fn=_now_ms)
 
         hist_series = ["cpu.loadavg.1", f"gpu.{gpu0}.util", "mem.used"]
+        hist_formats = {
+            "cpu.loadavg.1": ("CPU load (1m)", 1.0),
+            f"gpu.{gpu0}.util": (f"GPU{gpu0} util (%)", 1.0),
+            "mem.used": ("MEM used (GB)", 1e-9),
+        }
         if self._net_key:
             hist_series.append(self._net_key)
-        self._hist = HistoryStrip(model, hist_series)
+            hist_formats[self._net_key] = ("NET rx (KB/s)", 1.0 / 1024)
+        self._hist = HistoryStrip(model, hist_series, formats=hist_formats)
 
         self._status = QtWidgets.QLabel("disconnected")
         self._status.setObjectName("statusBar")
@@ -129,36 +136,52 @@ class MainWindow(QtWidgets.QMainWindow):
         self._pulse.valueChanged.connect(lambda v: self._live_glow.setBlurRadius(float(v)))
         self._pulse.start()
 
-        # kolumna I/O (NET / DISK / SWAP [+ dodatkowe GPU jeśli >1])
-        io = QtWidgets.QWidget()
-        io_lay = QtWidgets.QVBoxLayout(io)
-        io_lay.setContentsMargins(0, 0, 0, 0)
-        io_lay.setSpacing(4)
-        io_lay.addWidget(self._net)
-        io_lay.addWidget(self._disk)
-        io_lay.addWidget(self._swap)
+        # lewa kolumna pod hero-ringami: małe ringi (util ‖ temp) + SWAP [+ extra GPU]
+        left = QtWidgets.QWidget()
+        left_lay = QtWidgets.QVBoxLayout(left)
+        left_lay.setContentsMargins(0, 0, 0, 0)
+        left_lay.setSpacing(4)
+        left_lay.addWidget(self._core)
+        left_lay.addWidget(self._swap)
         if self._gpu_extra is not None:
-            io_lay.addWidget(self._gpu_extra)
+            left_lay.addWidget(self._gpu_extra)
+        left_lay.addStretch(1)
 
-        # layout B: hero-kolumna z lewej (span), reszta po prawej, glyph hero z prawej
-        grid.addWidget(self._hero, 0, 0, 6, 1)
-        grid.addWidget(self._core, 0, 1, 2, 2)
-        grid.addWidget(io, 0, 3, 2, 1)
-        grid.addWidget(self._hist, 2, 1, 2, 3)
+        # prawa kolumna: [NET rx ‖ DISK r] sparkline'y w rzędzie, nad wykresem gwiazdowym
+        charts = QtWidgets.QWidget()
+        charts_lay = QtWidgets.QHBoxLayout(charts)
+        charts_lay.setContentsMargins(0, 0, 0, 0)
+        charts_lay.setSpacing(6)
+        charts_lay.addWidget(self._net)
+        charts_lay.addWidget(self._disk)
+        right = QtWidgets.QWidget()
+        right_lay = QtWidgets.QVBoxLayout(right)
+        right_lay.setContentsMargins(0, 0, 0, 0)
+        right_lay.setSpacing(4)
+        right_lay.addWidget(charts)
+        right_lay.addWidget(self._glyph, 1)   # glyph dostaje pionowy wzrost pod wykresami
+
         # PROCESSES (top-CPU) ‖ GPU PROCESSES (NVML, top-VRAM) — resizable splitter
         proc_split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         proc_split.addWidget(_titled("processes", NEON_CYAN, "PROCESSES", self._procs))
         proc_split.addWidget(_titled("gpu", NEON_MAGENTA, "GPU PROCESSES", self._gpu_procs))
         proc_split.setStretchFactor(0, 3)   # PROCESSES (CPU)
         proc_split.setStretchFactor(1, 4)   # GPU-tabela ma więcej kolumn → szersza (proporcja 3:4)
-        grid.addWidget(proc_split, 4, 1, 1, 3)
-        grid.addWidget(ctrl_w, 5, 1, 1, 3)
-        grid.addWidget(self._glyph, 0, 4, 6, 1)   # Vital-Signs Glyph: right-side hero column
-        grid.addWidget(self._status, 6, 0, 1, 5)
-        grid.setColumnStretch(0, 0)
-        for _c in (1, 2, 3):
-            grid.setColumnStretch(_c, 1)
-        grid.setColumnStretch(4, 1)
+
+        # nowy bento: hero-ringi w rzędzie u góry, niżej [małe ringi | net/disk+glyph],
+        # potem history (pełna szerokość), tabele i kontrolki
+        grid.addWidget(self._hero, 0, 0, 1, 2)
+        grid.addWidget(left, 1, 0)
+        grid.addWidget(right, 1, 1)
+        grid.addWidget(self._hist, 2, 0, 1, 2)
+        grid.addWidget(proc_split, 3, 0, 1, 2)
+        grid.addWidget(ctrl_w, 4, 0, 1, 2)
+        grid.addWidget(self._status, 5, 0, 1, 2)
+        grid.setColumnStretch(0, 2)
+        grid.setColumnStretch(1, 3)
+        grid.setRowStretch(1, 3)   # ringi/charts/glyph
+        grid.setRowStretch(2, 2)   # history
+        grid.setRowStretch(3, 2)   # tabele
 
         live.snapshot.connect(self._on_snapshot)   # AutoConnection → wątek GUI
         live.state.connect(self._on_state)

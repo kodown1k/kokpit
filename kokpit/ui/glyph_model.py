@@ -122,9 +122,12 @@ def _fmt_display(name: str, best_val: Optional[float], prox: Optional[float]) ->
         return f"{code} {round(best_val)}%"
     if name in ("CPU temp", "GPU temp"):
         return f"{code} {round(best_val)}°"
-    if name in ("Disk IO", "Net IO"):
+    if name == "Disk IO":
         mb = round(best_val / 1e6)
-        return code if mb == 0 else f"{code} {mb}"   # ukryj "DISK 0"/"NET 0" przy idle
+        return code if mb == 0 else f"{code} {mb}"   # MB/s; ukryj "DISK 0" przy idle
+    if name == "Net IO":
+        kb = round(best_val / 1024)
+        return code if kb == 0 else f"{code} {kb}"   # KB/s (domowe łącze < 1 MB/s); ukryj "NET 0"
     if name == "Swap":
         return f"{code} {round(best_val / 1048576)}M"
     if name == "CPU":

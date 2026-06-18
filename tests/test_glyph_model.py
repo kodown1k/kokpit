@@ -272,3 +272,18 @@ def test_baseline_cache_does_not_cache_errors():
     result3 = cache2.get("cpu.loadavg.1")
     assert result3 == (5.0, 2.0, 12, "global")   # still last-known
     assert store_ok.calls == 3                    # retried immediately, not cached
+
+
+def test_display_net_io_kbs():
+    """Net IO 50 kB/s → display 'NET 49' (KB/s, nie MB jak Disk)."""
+    m = gm.GlyphModel()
+    series = {"net.eth0.rx_bps": 50_000.0}     # ~48.8 KB/s → round 49
+    spokes = {s.name: s for s in m.update(series, 1_700_000_000_000, _const_provider({}))}
+    assert spokes["Net IO"].display == "NET 49"
+
+
+def test_display_net_io_idle_still_hides_zero():
+    m = gm.GlyphModel()
+    series = {"net.eth0.rx_bps": 300.0}        # 0.3 KB/s → round 0 → ukryte
+    spokes = {s.name: s for s in m.update(series, 1_700_000_000_000, _const_provider({}))}
+    assert spokes["Net IO"].display == "NET"

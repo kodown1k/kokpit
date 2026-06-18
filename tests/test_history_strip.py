@@ -174,3 +174,21 @@ def test_panned_away_accumulates_tail_without_sliding(qapp):
     # ... but the view did NOT slide (right edge stays at the framed 'now', not 10000.5)
     _lo, hi = strip._master_vb.viewRange()[0]
     assert hi == pytest.approx(10000.0, abs=1.0)
+
+
+def test_history_strip_scales_and_labels(qapp):
+    from kokpit.ui.history_model import HistoryModel
+    from kokpit.ui.widgets.history_strip import HistoryStrip
+
+    class FakeStore:
+        def query(self, n, a, b): return [(a, 4e9), (b, 8e9)]
+        def query_rollup(self, n, a, b): return []
+        def list_series(self, prefix=None): return []
+
+    strip = HistoryStrip(HistoryModel(FakeStore()), ["mem.used"],
+                         formats={"mem.used": ("MEM used (GB)", 1e-9)})
+    strip.set_window(3600, now_ms=3_600_000)
+    assert strip._tail["mem.used"][0][1] == 4.0          # 4e9 B → 4.0 GB
+    strip.on_snapshot({"ts": 3_600_500, "series": {"mem.used": 6e9}})
+    assert strip._tail["mem.used"][-1][1] == 6.0          # skala zastosowana też w live
+    assert "GB" in strip._labels["mem.used"].text()       # czytelna etykieta jednostki

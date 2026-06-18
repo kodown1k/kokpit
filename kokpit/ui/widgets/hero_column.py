@@ -1,4 +1,4 @@
-"""Kolumna 4 hero-ringów (CPU·GPU·RAM·VRAM) — layout B (lewa strona bento).
+"""Rząd 4 hero-ringów (CPU·GPU·RAM·VRAM) — pas na górze dashboardu.
 Mapuje snapshot 1 Hz na ringi + sub-odczyty (temperatura / GB)."""
 from PySide6 import QtWidgets
 
@@ -32,7 +32,7 @@ class HeroColumn(QtWidgets.QWidget):
     def __init__(self, gpu_index: int = 0) -> None:
         super().__init__()
         self._gi = gpu_index
-        lay = QtWidgets.QVBoxLayout(self)
+        lay = QtWidgets.QHBoxLayout(self)
         lay.setContentsMargins(4, 4, 4, 4)
         lay.setSpacing(8)
         # util max to norma → high=crit=None (zawsze akcent); RAM/VRAM eskalują na alert
@@ -41,8 +41,7 @@ class HeroColumn(QtWidgets.QWidget):
         self._ram = RingGauge("RAM", NEON_CYAN, icon="ram", high=85, crit=95)
         self._vram = RingGauge("VRAM", NEON_LIME, icon="ram", high=85, crit=95)
         for g in (self._cpu, self._gpu, self._ram, self._vram):
-            lay.addWidget(g)
-        lay.addStretch(1)   # dociągnij ringi do góry (kolumna bywa wyższa niż treść)
+            lay.addWidget(g, 1)   # równe rozłożenie ringów w rzędzie
 
     def update_snapshot(self, snapshot: dict) -> None:
         s = snapshot.get("series", {})
