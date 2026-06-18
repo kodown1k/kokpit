@@ -35,7 +35,6 @@ def test_iface_disk_filters():
 
 
 def test_glyph_constants_present_and_sane():
-    from kokpit import config
     assert config.BASELINE_MIN_SAMPLES == 10
     assert config.FALLBACK_GLOBAL_DAYS == 7
     assert config.BASELINE_REFRESH_S == 60

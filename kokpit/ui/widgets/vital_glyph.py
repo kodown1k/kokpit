@@ -32,7 +32,7 @@ class VitalGlyph(QtWidgets.QWidget):
         self._calibrating = calibrating
         self.update()   # zażądaj repaint
 
-    def _vertex(self, cx: float, cy: float, i: int, n: int, r: float):
+    def _vertex(self, cx: float, cy: float, i: int, n: int, r: float) -> QtCore.QPointF:
         ang = -math.pi / 2 + 2 * math.pi * i / n     # start u góry, zgodnie z zegarem
         return QtCore.QPointF(cx + r * math.cos(ang), cy + r * math.sin(ang))
 
@@ -70,7 +70,7 @@ class VitalGlyph(QtWidgets.QWidget):
                 v = self._vertex(cx, cy, i, n, self.vertex_radius(s.score))
                 p.drawEllipse(v, 4.0, 4.0)
         # centrum: skalar zdrowia + stan kalibracji
-        p.setPen(QtGui.QPen(QtGui.QColor(edge)))
+        p.setPen(QtGui.QPen(edge))
         f = p.font()
         f.setPointSize(20)
         f.setBold(True)

@@ -1,4 +1,3 @@
-import math
 from kokpit import config
 from kokpit.ui import glyph_model as gm
 
@@ -149,3 +148,51 @@ def test_baseline_cache_throttles_recompute():
     clock["t"] += int(config.BASELINE_REFRESH_S * 1000) + 1   # po oknie
     cache.get("cpu.loadavg.1")
     assert store.calls == 2
+
+
+def test_baseline_cache_does_not_cache_errors():
+    """DB error must NOT be cached — next tick must retry (call count keeps growing)."""
+    from kokpit.ui.glyph_model import BaselineCache
+
+    class FakeStore:
+        def __init__(self, fail=False):
+            self.calls = 0
+            self.fail = fail
+        def baseline(self, series, now_ms):
+            self.calls += 1
+            if self.fail:
+                raise RuntimeError("DB gone")
+            return (5.0, 2.0, 12, "global")
+
+    clock = {"t": 1_700_000_000_000}
+    tick = int(config.BASELINE_REFRESH_S * 1000) + 1
+
+    # Case 1: error on very first call → must return None (no prior value)
+    store_err = FakeStore(fail=True)
+    cache = BaselineCache(store_err, now_fn=lambda: clock["t"])
+    assert cache.get("cpu.loadavg.1") is None
+    assert store_err.calls == 1
+    # Without advancing clock: error NOT cached → store is queried again on next call
+    result2 = cache.get("cpu.loadavg.1")
+    assert result2 is None
+    assert store_err.calls == 2   # would be 1 if error were cached within TTL
+
+    # Case 2: successful read, then error — must return last-known AND keep retrying
+    clock["t"] = 1_700_000_000_000
+    store_ok = FakeStore(fail=False)
+    cache2 = BaselineCache(store_ok, now_fn=lambda: clock["t"])
+    last_good = cache2.get("cpu.loadavg.1")
+    assert last_good == (5.0, 2.0, 12, "global")
+    assert store_ok.calls == 1
+
+    # Switch store to failing mode, advance clock past TTL
+    store_ok.fail = True
+    clock["t"] += tick
+    result = cache2.get("cpu.loadavg.1")
+    assert result == (5.0, 2.0, 12, "global")   # returns last-known
+    assert store_ok.calls == 2                   # store WAS queried (error not cached)
+
+    # WITHOUT advancing clock: store must be queried again (error not cached within TTL)
+    result3 = cache2.get("cpu.loadavg.1")
+    assert result3 == (5.0, 2.0, 12, "global")   # still last-known
+    assert store_ok.calls == 3                    # retried immediately, not cached

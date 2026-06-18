@@ -199,9 +199,22 @@ def _seed_rollup(s, name, points):
     s.conn.commit()
 
 
-def _use_utc():
-    import os, time
+import os
+import time
+
+import pytest
+
+
+@pytest.fixture()
+def use_utc():
+    prior = os.environ.get("TZ")
     os.environ["TZ"] = "UTC"
+    time.tzset()
+    yield
+    if prior is None:
+        os.environ.pop("TZ", None)
+    else:
+        os.environ["TZ"] = prior
     time.tzset()
 
 
@@ -210,8 +223,7 @@ WEEK = 7 * DAY
 BASE = 1_700_000_000_000   # ustalony epoch ms (UTC); now dla wszystkich testów
 
 
-def test_baseline_circadian_tier(tmp_path):
-    _use_utc()
+def test_baseline_circadian_tier(tmp_path, use_utc):
     s = Store(tmp_path / "k.db")
     # 12 bucketów dokładnie 7 dni od siebie → ta sama hour-of-week co BASE
     pts = [(BASE - k * WEEK, 40.0 if k % 2 == 0 else 60.0) for k in range(12)]
@@ -224,8 +236,7 @@ def test_baseline_circadian_tier(tmp_path):
     s.close()
 
 
-def test_baseline_falls_back_to_hour_tier(tmp_path):
-    _use_utc()
+def test_baseline_falls_back_to_hour_tier(tmp_path, use_utc):
     s = Store(tmp_path / "k.db")
     # 3 buckety tej samej hour-of-week (tygodniowe) → circadian=3 (<10)
     weekly = [(BASE - k * WEEK, 50.0) for k in range(3)]
@@ -238,8 +249,7 @@ def test_baseline_falls_back_to_hour_tier(tmp_path):
     s.close()
 
 
-def test_baseline_falls_back_to_global_tier(tmp_path):
-    _use_utc()
+def test_baseline_falls_back_to_global_tier(tmp_path, use_utc):
     s = Store(tmp_path / "k.db")
     # 11 bucketów w obrębie 7d, godzina-doby przesunięta o nieparzyste h → nigdy == BASE hour
     pts = [(BASE - 3_600_000 - k * 7_200_000, 50.0) for k in range(11)]
@@ -250,8 +260,7 @@ def test_baseline_falls_back_to_global_tier(tmp_path):
     s.close()
 
 
-def test_baseline_none_when_insufficient(tmp_path):
-    _use_utc()
+def test_baseline_none_when_insufficient(tmp_path, use_utc):
     s = Store(tmp_path / "k.db")
     _seed_rollup(s, "cpu.loadavg.1", [(BASE, 50.0), (BASE - WEEK, 51.0)])  # tylko 2
     assert s.baseline("cpu.loadavg.1", BASE) is None
@@ -259,8 +268,7 @@ def test_baseline_none_when_insufficient(tmp_path):
     s.close()
 
 
-def test_baseline_constant_series_sigma_zero(tmp_path):
-    _use_utc()
+def test_baseline_constant_series_sigma_zero(tmp_path, use_utc):
     s = Store(tmp_path / "k.db")
     _seed_rollup(s, "thermal.coretemp.0.pkg", [(BASE - k * WEEK, 95.0) for k in range(12)])
     mean, sigma, n, tier = s.baseline("thermal.coretemp.0.pkg", BASE)

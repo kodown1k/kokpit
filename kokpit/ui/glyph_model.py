@@ -6,7 +6,7 @@ max(worst-of z-score po członkach rodziny, proximity). Spec 2026-06-18.
 import math
 import re
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Optional
 
 from kokpit import config
 
@@ -137,7 +137,7 @@ class GlyphModel:
         self._alpha = ewma_alpha()
         self.calibrating = True
 
-    def update(self, series: dict, now_ms: int, provider) -> list:
+    def update(self, series: dict, _now_ms: int, provider) -> list:
         keys = list(series.keys())
         any_baseline = False
         spokes = []
@@ -181,6 +181,6 @@ class BaselineCache:
         try:
             val = self._store.baseline(series, now)
         except Exception:
-            val = hit[1] if hit is not None else None   # DB error → ostatnia znana / None
+            return hit[1] if hit is not None else None   # transient error → keep stale cache, retry next tick
         self._cache[series] = (now, val)
         return val
