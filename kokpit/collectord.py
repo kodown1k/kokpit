@@ -3,6 +3,10 @@ import signal
 import time
 
 from kokpit import config
+from kokpit.actuator.audit import AuditLog
+from kokpit.actuator.control_server import ControlServer, build_dispatch
+from kokpit.actuator.engine import Actuator
+from kokpit.actuator.levers import LEVERS
 from kokpit.host import LocalHost
 from kokpit.live import LiveServer
 from kokpit.proc import ProcCollector
@@ -34,12 +38,13 @@ def build_host() -> tuple[LocalHost, GpuSource]:
     return host, gpu
 
 
-def tick(host, store, live, procs, now_ms: int, dt_s: float) -> None:
+def tick(host, store, live, procs, actuator, now_ms: int, dt_s: float) -> None:
     series = host.collect(now_ms, dt_s)
     store.write(now_ms, series)
     proc_rows, gpu_rows = procs.snapshot()
     live.publish({"ts": now_ms, "series": series,
                   "procs": proc_rows, "gpu_procs": gpu_rows})
+    actuator.tick(now_ms)
 
 
 def run() -> None:
@@ -49,6 +54,10 @@ def run() -> None:
     store = Store(config.db_path())
     live = LiveServer(config.socket_path())
     live.start()
+    audit = AuditLog(config.audit_path())
+    actuator = Actuator(LEVERS, audit, now_fn=lambda: int(time.time() * 1000))
+    control = ControlServer(config.control_socket_path(), build_dispatch(actuator))
+    control.start()
     host, gpu = build_host()
     procs = ProcCollector(nvml=gpu.nvml)   # ten sam uchwyt NVML co GpuSource
     period = 1.0 / config.SAMPLE_HZ
@@ -62,7 +71,7 @@ def run() -> None:
             dt_s = (start - last_mono) if last_mono is not None else 0.0
             last_mono = start
             try:
-                tick(host, store, live, procs, now_ms, dt_s)
+                tick(host, store, live, procs, actuator, now_ms, dt_s)
             except Exception:
                 log.exception("tick nieudany")
             if start - last_rollup >= config.ROLLUP_INTERVAL_S:
@@ -78,6 +87,8 @@ def run() -> None:
     except KeyboardInterrupt:
         log.info("zatrzymywanie")
     finally:
+        control.stop()
+        actuator.revert_all()
         live.stop()
         store.close()
 
