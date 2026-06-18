@@ -297,3 +297,58 @@ def test_cap_requested_emitted_on_release(qapp):
     g._emit_cap(QtCore.QPointF(150, 150 - g.R_BASE - 5))
     assert seen and seen[0][0] == "CPU"
     assert 0.0 <= seen[0][1] <= 0.3
+
+
+def _glyph_300(qapp):
+    from kokpit.ui.widgets.vital_glyph import VitalGlyph
+    g = VitalGlyph()
+    g.resize(300, 300)
+    g.set_spokes(_spokes(), calibrating=False)
+    return g
+
+
+def test_update_drag_records_live_fraction_while_dragging(qapp):
+    # Live feedback: while an arm is grabbed, moving toward the rim raises the
+    # drag fraction, toward the centre lowers it — without releasing the mouse.
+    g = _glyph_300(qapp)
+    g._drag_idx = 0                                   # spoke 0 = top
+    # near the rim (full radius) -> high fraction
+    g._update_drag(QtCore.QPointF(150, 150 - 116))
+    assert g._drag_frac is not None and g._drag_frac > 0.7
+    # near the base -> low fraction; state tracks the cursor live
+    g._update_drag(QtCore.QPointF(150, 150 - g.R_BASE))
+    assert g._drag_frac < 0.2
+
+
+def test_update_drag_noop_when_not_dragging(qapp):
+    g = _glyph_300(qapp)
+    assert g._drag_idx is None
+    g._update_drag(QtCore.QPointF(150, 60))
+    assert g._drag_frac is None                       # nothing grabbed -> no drag state
+
+
+def test_release_clears_drag_fraction(qapp):
+    g = _glyph_300(qapp)
+    g._drag_idx = 3
+    g._drag_frac = 0.5
+    g.mouseReleaseEvent(_FakeMouse(QtCore.QPointF(150, 150 - 60)))
+    assert g._drag_frac is None                       # overlay cleared after release
+
+
+def test_drag_overlay_paints_without_crash(qapp):
+    from PySide6 import QtGui
+    g = _glyph_300(qapp)
+    g._drag_idx = 0
+    g._drag_frac = 0.35
+    img = QtGui.QImage(300, 300, QtGui.QImage.Format_ARGB32)
+    img.fill(0)
+    g.render(img)                                     # drag-overlay branch must not crash
+    assert img.width() == 300
+
+
+class _FakeMouse:
+    """Minimal stand-in for QMouseEvent exposing position()."""
+    def __init__(self, pos):
+        self._pos = pos
+    def position(self):
+        return self._pos
