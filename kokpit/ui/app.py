@@ -150,31 +150,30 @@ class MainWindow(QtWidgets.QMainWindow):
         self._pulse.valueChanged.connect(lambda v: self._live_glow.setBlurRadius(float(v)))
         self._pulse.start()
 
-        # lewa kolumna pod hero-ringami: małe ringi (util ‖ temp) + SWAP [+ extra GPU]
-        left = QtWidgets.QWidget()
-        left_lay = QtWidgets.QVBoxLayout(left)
-        left_lay.setContentsMargins(0, 0, 0, 0)
-        left_lay.setSpacing(4)
-        left_lay.addWidget(self._core)
-        left_lay.addWidget(self._sysinfo)
+        # ZONA 1 — VITALS + SYSTEM (lewa): małe ringi util‖temp, niżej panel sysinfo
+        zone_vitals = QtWidgets.QWidget()
+        zv = QtWidgets.QVBoxLayout(zone_vitals)
+        zv.setContentsMargins(0, 0, 0, 0)
+        zv.setSpacing(6)
+        zv.addWidget(_titled("cpu", NEON_CYAN, "CORES", self._core))
         if self._gpu_extra is not None:
-            left_lay.addWidget(self._gpu_extra)
-        left_lay.addStretch(1)
+            zv.addWidget(self._gpu_extra)
+        zv.addWidget(self._sysinfo, 1)
 
-        # prawa kolumna: [NET rx ‖ DISK r] sparkline'y w rzędzie, nad wykresem gwiazdowym
-        charts = QtWidgets.QWidget()
-        charts_lay = QtWidgets.QHBoxLayout(charts)
-        charts_lay.setContentsMargins(0, 0, 0, 0)
-        charts_lay.setSpacing(6)
-        charts_lay.addWidget(self._net)
-        charts_lay.addWidget(self._disk)
-        charts_lay.addWidget(self._disk_usage)   # obok DISK r: zajętość/wolne per dysk
-        right = QtWidgets.QWidget()
-        right_lay = QtWidgets.QVBoxLayout(right)
-        right_lay.setContentsMargins(0, 0, 0, 0)
-        right_lay.setSpacing(4)
-        right_lay.addWidget(charts)
-        right_lay.addWidget(self._glyph, 1)   # glyph dostaje pionowy wzrost pod wykresami
+        # ZONA 2 — ANOMALY RADAR (środek): glyph wyśrodkowany jako bohater, dostaje sceny
+        zone_glyph = QtWidgets.QWidget()
+        zg = QtWidgets.QVBoxLayout(zone_glyph)
+        zg.setContentsMargins(0, 0, 0, 0)
+        zg.addWidget(_titled("thermal", NEON_MAGENTA, "VITAL-SIGNS GLYPH", self._glyph), 1)
+
+        # ZONA 3 — I/O & STORAGE (prawa): sparkline'y NET/DISK jeden pod drugim + zajętość
+        zone_io = QtWidgets.QWidget()
+        zi = QtWidgets.QVBoxLayout(zone_io)
+        zi.setContentsMargins(0, 0, 0, 0)
+        zi.setSpacing(6)
+        zi.addWidget(self._net, 1)
+        zi.addWidget(self._disk, 1)
+        zi.addWidget(self._disk_usage, 1)   # ma własny nagłówek „DISK USAGE"
 
         # PROCESSES (top-CPU) ‖ GPU PROCESSES (NVML, top-VRAM) — resizable splitter
         proc_split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
@@ -183,27 +182,27 @@ class MainWindow(QtWidgets.QMainWindow):
         proc_split.setStretchFactor(0, 3)   # PROCESSES (CPU)
         proc_split.setStretchFactor(1, 4)   # GPU-tabela ma więcej kolumn → szersza (proporcja 3:4)
 
-        # nowy bento: hero-ringi w rzędzie u góry, niżej [małe ringi | net/disk+glyph],
-        # potem history (pełna szerokość), tabele i kontrolki
-        # pas hero: 4 ringi CPU/GPU/RAM/VRAM + kafel dwóch koncentrycznych ringów temp
+        # bento: pas hero (5 kafli) → pasmo 3 stref → history (pełna szer.) → tabele → kontrolki
         top = QtWidgets.QWidget()
         top_lay = QtWidgets.QHBoxLayout(top)
         top_lay.setContentsMargins(0, 0, 0, 0)
         top_lay.setSpacing(8)
         top_lay.addWidget(self._hero, 4)
         top_lay.addWidget(self._temps, 1)
-        grid.addWidget(top, 0, 0, 1, 2)
-        grid.addWidget(left, 1, 0)
-        grid.addWidget(right, 1, 1)
-        grid.addWidget(self._hist, 2, 0, 1, 2)
-        grid.addWidget(proc_split, 3, 0, 1, 2)
-        grid.addWidget(ctrl_w, 4, 0, 1, 2)
-        grid.addWidget(self._status, 5, 0, 1, 2)
-        grid.setColumnStretch(0, 2)
-        grid.setColumnStretch(1, 3)
-        grid.setRowStretch(1, 3)   # ringi/charts/glyph
-        grid.setRowStretch(2, 2)   # history
-        grid.setRowStretch(3, 2)   # tabele
+        grid.addWidget(top, 0, 0, 1, 3)
+        grid.addWidget(zone_vitals, 1, 0)
+        grid.addWidget(zone_glyph, 1, 1)
+        grid.addWidget(zone_io, 1, 2)
+        grid.addWidget(self._hist, 2, 0, 1, 3)
+        grid.addWidget(proc_split, 3, 0, 1, 3)
+        grid.addWidget(ctrl_w, 4, 0, 1, 3)
+        grid.addWidget(self._status, 5, 0, 1, 3)
+        grid.setColumnStretch(0, 5)    # vitals + system
+        grid.setColumnStretch(1, 5)    # glyph — bohater dostaje środek
+        grid.setColumnStretch(2, 4)    # I/O stos
+        grid.setRowStretch(1, 4)       # pasmo 3 stref (główna scena)
+        grid.setRowStretch(2, 2)       # history
+        grid.setRowStretch(3, 2)       # tabele
 
         live.snapshot.connect(self._on_snapshot)   # AutoConnection → wątek GUI
         live.state.connect(self._on_state)
