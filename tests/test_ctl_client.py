@@ -28,3 +28,62 @@ def test_request_on_dead_socket_returns_error(tmp_path):
     c = ControlClient(str(tmp_path / "nope.sock"))
     resp = c.request("list", {})
     assert resp.ok is False and resp.error
+
+
+def test_request_returns_error_on_garbage_response(tmp_path):
+    """ControlClient.request must return ok=False (not raise) when server replies garbage."""
+    import socket
+    import threading
+
+    sock_path = str(tmp_path / "garbage.sock")
+    ready = threading.Event()
+
+    def bad_server():
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        srv.bind(sock_path)
+        srv.listen(1)
+        ready.set()
+        conn, _ = srv.accept()
+        conn.sendall(b"this is not json at all\n")
+        conn.close()
+        srv.close()
+
+    t = threading.Thread(target=bad_server, daemon=True)
+    t.start()
+    ready.wait(timeout=2.0)
+
+    c = ControlClient(sock_path)
+    resp = c.request("list", {})
+    t.join(timeout=2.0)
+
+    assert resp.ok is False, "Expected ok=False for garbage response"
+    assert resp.error is not None, "Expected error message for garbage response"
+
+
+def test_request_returns_error_on_empty_response(tmp_path):
+    """ControlClient.request must return ok=False (not raise) when server replies empty line."""
+    import socket
+    import threading
+
+    sock_path = str(tmp_path / "empty.sock")
+    ready = threading.Event()
+
+    def empty_server():
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        srv.bind(sock_path)
+        srv.listen(1)
+        ready.set()
+        conn, _ = srv.accept()
+        conn.sendall(b"\n")   # empty line
+        conn.close()
+        srv.close()
+
+    t = threading.Thread(target=empty_server, daemon=True)
+    t.start()
+    ready.wait(timeout=2.0)
+
+    c = ControlClient(sock_path)
+    resp = c.request("list", {})
+    t.join(timeout=2.0)
+
+    assert resp.ok is False, "Expected ok=False for empty response"

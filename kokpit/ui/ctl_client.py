@@ -21,7 +21,7 @@ class ControlClient(QtCore.QObject):
             with s.makefile("rb") as f:
                 line = f.readline()
             return p.decode_response(line)
-        except OSError as e:
+        except (OSError, ValueError, KeyError) as e:
             self.error.emit(str(e))
             return p.Response(ok=False, error=str(e))
         finally:

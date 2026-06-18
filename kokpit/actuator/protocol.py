@@ -42,5 +42,11 @@ def encode_response(resp: Response) -> bytes:
 
 
 def decode_response(line: bytes) -> Response:
-    obj = json.loads(line.decode())
-    return Response(ok=bool(obj["ok"]), data=obj.get("data") or {}, error=obj.get("error"))
+    try:
+        obj = json.loads(line.decode())
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        raise ValueError(f"malformed response: {e}") from e
+    try:
+        return Response(ok=bool(obj["ok"]), data=obj.get("data") or {}, error=obj.get("error"))
+    except (KeyError, AttributeError) as e:
+        raise ValueError(f"missing field in response: {e}") from e

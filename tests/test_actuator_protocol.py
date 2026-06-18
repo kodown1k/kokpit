@@ -23,3 +23,15 @@ def test_unknown_verb_rejected():
 def test_malformed_json_rejected():
     with pytest.raises(ValueError):
         p.decode_request(b'not json\n')
+
+
+# --- decode_response robustness (IMPORTANT #3) ---
+
+def test_decode_response_malformed_json_raises_value_error():
+    with pytest.raises(ValueError):
+        p.decode_response(b"not json\n")
+
+
+def test_decode_response_empty_line_raises_value_error():
+    with pytest.raises(ValueError):
+        p.decode_response(b"")
