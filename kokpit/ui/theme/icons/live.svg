@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+     fill="none" stroke="currentColor" stroke-width="1.5"
+     stroke-linecap="round" stroke-linejoin="round">
+  <!-- ICON: live (pulse / signal) -->
+  <!-- character mark: accent dot (pulse source) + broken line (outer-left wave) -->
+
+  <!-- pulse source -->
+  <circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none"/>
+  <!-- inner waves -->
+  <path d="M14.5,9.5 A3.5,3.5 0 0 1 14.5,14.5"/>
+  <path d="M9.5,9.5 A3.5,3.5 0 0 0 9.5,14.5"/>
+  <!-- outer waves (left one broken = transmission) -->
+  <path d="M17,7 A7,7 0 0 1 17,17"/>
+  <path d="M7,7 A7,7 0 0 0 7,17" stroke-dasharray="9 2.5"/>
+</svg>

@@ -1,6 +1,6 @@
 import os
 
-from PySide6 import QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 HIGH_C = 80.0
 CRIT_C = 100.0
@@ -67,15 +67,26 @@ def util_rgb(frac: float) -> tuple[int, int, int]:
 
 
 def _qcolor(color) -> QtGui.QColor:
+    if isinstance(color, QtGui.QColor):
+        return color
     return QtGui.QColor(color) if isinstance(color, str) else QtGui.QColor(*color)
+
+
+def round_pen(color, width: float) -> QtGui.QPen:
+    """QPen z RoundCap. (PySide6 nie przyjmuje `cap=` jako kwarg konstruktora —
+    trzeba setCapStyle.) `color`: hex str, (r,g,b) lub QColor."""
+    pen = QtGui.QPen(_qcolor(color), float(width))
+    pen.setCapStyle(QtCore.Qt.RoundCap)
+    return pen
 
 
 def apply_glow(widget: QtWidgets.QWidget, color, radius: float = 16.0):
     """Fosforowa poświata: zero-offset kolorowy drop-shadow = bloom wokół
-    nieprzezroczystych pikseli (tekst/ikona). Statyczne i tanie (spec §4.6) —
+    nieprzezroczystych pikseli (tekst/ikona). Zwykle statyczne i tanie (spec §4.6) —
     stosować na etykietach/wartościach, NIE na stosach krzywych.
 
-    Zwraca efekt, by widget mógł aktualizować jego kolor (np. alert→czerwień)."""
+    Zwraca efekt, by widget mógł aktualizować jego kolor (np. alert→czerwień) albo
+    animować promień przez setBlurRadius (np. pulsujące ● LIVE)."""
     eff = QtWidgets.QGraphicsDropShadowEffect(widget)
     eff.setOffset(0.0, 0.0)
     eff.setBlurRadius(radius)

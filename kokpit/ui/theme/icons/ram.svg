@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+     fill="none" stroke="currentColor" stroke-width="1.5"
+     stroke-linecap="round" stroke-linejoin="round">
+  <!-- ICON: ram -->
+  <!-- character mark: accent dot (presence LED, centered) -->
+
+  <!-- module -->
+  <rect x="4" y="7" width="16" height="8" rx="1"/>
+  <!-- chips -->
+  <rect x="7" y="9.5" width="3.5" height="3" rx="0.8"/>
+  <rect x="13.5" y="9.5" width="3.5" height="3" rx="0.8"/>
+  <!-- connector teeth -->
+  <path d="M8,15 V17 M16,15 V17"/>
+  <!-- accent dot -->
+  <circle cx="12" cy="11" r="1" fill="currentColor" stroke="none"/>
+</svg>

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>kokpit — neon iconset preview</title>
+<style>
+  body { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace; }
+  .panel { padding: 28px 24px; }
+  .dark  { background: #04060d; color: #5fb8d6; }
+  .light { background: #eef3f6; color: #2a3b44; }
+  h2 { font-size: 13px; letter-spacing: 2px; text-transform: uppercase; opacity: .7; margin: 0 0 18px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 26px; }
+  .cell { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 92px; }
+  .row  { display: flex; align-items: flex-end; gap: 10px; height: 48px; }
+  .name { font-size: 10px; letter-spacing: 1px; opacity: .65; }
+  /* neon recolor via currentColor */
+  .cyan    { color: #3df0ff; }
+  .magenta { color: #ff3cc8; }
+  .lime    { color: #39ff14; }
+  svg.icon { display: block; }
+</style>
+</head>
+<body>
+
+<!-- definicje symboli (currentColor → recolor przez CSS `color`) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <symbol id="cpu" viewBox="0 0 24 24">
+        <path d="M8,7 H15 L17,9 V16 Q17,17 16,17 H8 Q7,17 7,16 V8 Q7,7 8,7 Z"/>
+        <rect x="10" y="10" width="4" height="4" rx="1"/>
+        <path d="M10,7 V4.5 M14,7 V4.5 M10,17 V19.5 M14,17 V19.5"/>
+      </symbol>
+      <symbol id="gpu" viewBox="0 0 24 24">
+        <path d="M5,7 H18 L20,9 V15 Q20,16 19,16 H5 Q4,16 4,15 V8 Q4,7 5,7 Z"/>
+        <circle cx="8" cy="11.5" r="2.5"/>
+        <path d="M13.5,9.5 V13.5 M16,9.5 V13.5"/>
+        <path d="M7,16 V18.5 M11,16 V18.5"/>
+      </symbol>
+      <symbol id="ram" viewBox="0 0 24 24">
+        <rect x="4" y="7" width="16" height="8" rx="1"/>
+        <rect x="7" y="9.5" width="3.5" height="3" rx="0.8"/>
+        <rect x="13.5" y="9.5" width="3.5" height="3" rx="0.8"/>
+        <path d="M8,15 V17 M16,15 V17"/>
+        <circle cx="12" cy="11" r="1" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="swap" viewBox="0 0 24 24">
+        <rect x="5" y="5" width="14" height="3.5" rx="1.25"/>
+        <rect x="5" y="15.5" width="14" height="3.5" rx="1.25"/>
+        <path d="M9,9.5 V14.5 M7.4,12.9 L9,14.5 L10.6,12.9"/>
+        <path d="M15,14.5 V12.6 M15,11.4 V9.5 M13.4,11.1 L15,9.5 L16.6,11.1"/>
+      </symbol>
+      <symbol id="net-rx" viewBox="0 0 24 24">
+        <path d="M6,18 H18"/>
+        <path d="M12,5 V9 M12,10.5 V14"/>
+        <path d="M8.5,10.5 L12,14 L15.5,10.5"/>
+      </symbol>
+      <symbol id="net-tx" viewBox="0 0 24 24">
+        <path d="M6,18 H18"/>
+        <path d="M12,17 V13 M12,11.5 V8"/>
+        <path d="M8.5,11.5 L12,8 L15.5,11.5"/>
+      </symbol>
+      <symbol id="disk-read" viewBox="0 0 24 24">
+        <path d="M6,7 Q6,5.5 12,5.5 Q18,5.5 18,7 Q18,8.5 12,8.5 Q6,8.5 6,7 Z"/>
+        <path d="M6,7 V16 Q6,17.5 12,17.5 Q18,17.5 18,16 V7"/>
+        <path d="M12,15 V11 M9.5,13.5 L12,11 L14.5,13.5"/>
+        <circle cx="8" cy="15.3" r="1" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="disk-write" viewBox="0 0 24 24">
+        <path d="M6,7 Q6,5.5 12,5.5 Q18,5.5 18,7 Q18,8.5 12,8.5 Q6,8.5 6,7 Z"/>
+        <path d="M6,7 V16 Q6,17.5 12,17.5 Q18,17.5 18,16 V7"/>
+        <path d="M12,11 V15 M9.5,12.5 L12,15 L14.5,12.5"/>
+        <circle cx="8" cy="15.3" r="1" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="thermal" viewBox="0 0 24 24">
+        <path d="M10,7 a2,2 0 0 1 4,0 V13.8 a3.2,3.2 0 1 1 -4,0 Z"/>
+        <circle cx="12" cy="16.6" r="1.6" fill="currentColor" stroke="none"/>
+        <path d="M14.8,9 H16 M14.8,11.5 H16"/>
+      </symbol>
+      <symbol id="processes" viewBox="0 0 24 24">
+        <path d="M9,7 H19 M9,12 H19 M9,17 H19"/>
+        <path d="M5,12 H6.5 M5,17 H6.5"/>
+        <circle cx="5.6" cy="7" r="1" fill="currentColor" stroke="none"/>
+      </symbol>
+      <symbol id="live" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none"/>
+        <path d="M14.5,9.5 A3.5,3.5 0 0 1 14.5,14.5"/>
+        <path d="M9.5,9.5 A3.5,3.5 0 0 0 9.5,14.5"/>
+        <path d="M17,7 A7,7 0 0 1 17,17"/>
+        <path d="M7,7 A7,7 0 0 0 7,17" stroke-dasharray="9 2.5"/>
+      </symbol>
+    </g>
+  </defs>
+</svg>
+
+<script>
+  const ICONS = [
+    ["cpu","cyan"],["gpu","cyan"],["ram","cyan"],["swap","cyan"],
+    ["net-rx","magenta"],["net-tx","magenta"],["disk-read","lime"],["disk-write","lime"],
+    ["thermal","magenta"],["processes","cyan"],["live","lime"],
+  ];
+  function grid() {
+    return ICONS.map(([id,c]) => `
+      <div class="cell">
+        <div class="row">
+          <svg class="icon ${c}" width="48" height="48"><use href="#${id}"/></svg>
+          <svg class="icon ${c}" width="24" height="24"><use href="#${id}"/></svg>
+          <svg class="icon ${c}" width="16" height="16"><use href="#${id}"/></svg>
+        </div>
+        <div class="name">${id}</div>
+      </div>`).join("");
+  }
+  document.write(`
+    <div class="panel dark"><h2>dark · 48 / 24 / 16 px</h2><div class="grid">${grid()}</div></div>
+    <div class="panel light"><h2>light · 48 / 24 / 16 px</h2><div class="grid">${grid()}</div></div>
+  `);
+</script>
+</body>
+</html>

@@ -4,20 +4,34 @@ from collections import deque
 from PySide6 import QtWidgets
 
 from kokpit.ui.plot import make_live_plot, glow_curve
+from kokpit.ui.theme.icons import neon_pixmap
+
+
+def _hex(color) -> str:
+    return color if isinstance(color, str) else "#{:02x}{:02x}{:02x}".format(*color[:3])
 
 
 class Sparkline(QtWidgets.QWidget):
     def __init__(self, title: str, window_s: int = 300, y_range: tuple | None = None,
-                 color=(61, 240, 255)) -> None:
+                 color=(61, 240, 255), icon: str | None = None) -> None:
         super().__init__()
         self._window_s = window_s
         self._xs: deque[float] = deque()
         self._ys: deque[float] = deque()
         lay = QtWidgets.QVBoxLayout(self)
         lay.setContentsMargins(6, 4, 6, 4)
+        header = QtWidgets.QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(5)
+        if icon:
+            ic = QtWidgets.QLabel()
+            ic.setPixmap(neon_pixmap(icon, _hex(color), 14))
+            header.addWidget(ic)
         label = QtWidgets.QLabel(title)
         label.setObjectName("tileTitle")
-        lay.addWidget(label)
+        header.addWidget(label)
+        header.addStretch(1)
+        lay.addLayout(header)
         self._plot = make_live_plot()
         if y_range:
             self._plot.setYRange(*y_range)
