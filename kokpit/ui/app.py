@@ -11,8 +11,10 @@ from kokpit.ui.widgets.gauge import Gauge
 from kokpit.ui.widgets.gpu_panel import GpuPanel, expected_gpu_indices
 from kokpit.ui.widgets.heatmap import CoreHeatmap, pkg_temp
 from kokpit.ui.widgets.history_strip import HistoryStrip, window_mode
+from kokpit.ui.glyph_model import BaselineCache, GlyphModel
 from kokpit.ui.widgets.proc_table import ProcTable
 from kokpit.ui.widgets.sparkline import Sparkline
+from kokpit.ui.widgets.vital_glyph import VitalGlyph
 
 # history-window presets: (label, seconds)
 WINDOWS = [("1h", 3600), ("6h", 21600), ("24h", 86400), ("7d", 604800)]
@@ -64,6 +66,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._net = Sparkline("NET rx", window_s=120, color=(61, 240, 255))   # cyan
         self._disk = Sparkline("DISK r", window_s=120, color=(57, 255, 20))   # lime
         self._procs = ProcTable()
+        self._glyph = VitalGlyph()
+        self._glyph_model = GlyphModel()
+        self._baseline = BaselineCache(model.store, now_fn=_now_ms)
 
         hist_series = ["cpu.loadavg.1", f"gpu.{gpu0}.util", "mem.used"]
         if self._net_key:
@@ -100,6 +105,7 @@ class MainWindow(QtWidgets.QMainWindow):
         grid.addWidget(self._net, 1, 3)
         grid.addWidget(self._disk, 2, 0, 1, 2)
         grid.addWidget(self._procs, 2, 2, 1, 2)
+        grid.addWidget(self._glyph, 0, 4, 3, 2)   # hero po prawej, 3 wiersze × 2 kol
         grid.addWidget(ctrl_w, 3, 0, 1, 4)
         grid.addWidget(self._hist, 4, 0, 1, 4)
         grid.addWidget(self._status, 5, 0, 1, 4)
@@ -153,6 +159,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._disk.push(s.get(self._disk_key) if self._disk_key else None)
         self._procs.set_rows(snap.get("procs", []))
         self._hist.on_snapshot(snap)
+        spokes = self._glyph_model.update(s, snap.get("ts", _now_ms()), self._baseline.get)
+        self._glyph.set_spokes(spokes, self._glyph_model.calibrating)
 
 
 def main() -> int:
@@ -171,7 +179,7 @@ def main() -> int:
         gpu_indices = [0]
     live = LiveClient(str(config.socket_path()))
     win = MainWindow(live, model, gpu_indices)
-    win.resize(1500, 950)
+    win.resize(1900, 950)
     win.show()
     live.start()
     try:

@@ -162,3 +162,25 @@ class GlyphModel:
             spokes.append(SpokeScore(name=name, score=score, value=best_val, tier=best_tier))
         self.calibrating = not any_baseline
         return spokes
+
+
+class BaselineCache:
+    """Throttluje Store.baseline() — recompute per-seria nie częściej niż
+    BASELINE_REFRESH_S. Zwraca (mean,σ,n,tier)|None. Bez Qt."""
+
+    def __init__(self, store, now_fn) -> None:
+        self._store = store
+        self._now = now_fn
+        self._cache: dict = {}     # series → (ts_ms, value)
+
+    def get(self, series: str):
+        now = self._now()
+        hit = self._cache.get(series)
+        if hit is not None and now - hit[0] < config.BASELINE_REFRESH_S * 1000:
+            return hit[1]
+        try:
+            val = self._store.baseline(series, now)
+        except Exception:
+            val = hit[1] if hit is not None else None   # DB error → ostatnia znana / None
+        self._cache[series] = (now, val)
+        return val

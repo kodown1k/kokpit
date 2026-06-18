@@ -128,3 +128,24 @@ def test_update_not_calibrating_when_any_baseline():
     prov = _const_provider({"cpu.loadavg.1": (2.0, 1.0, 12, "global")})
     m.update({"cpu.loadavg.1": 5.0}, 1_700_000_000_000, prov)
     assert m.calibrating is False
+
+
+def test_baseline_cache_throttles_recompute():
+    from kokpit.ui.glyph_model import BaselineCache
+
+    class FakeStore:
+        def __init__(self):
+            self.calls = 0
+        def baseline(self, series, now_ms):
+            self.calls += 1
+            return (1.0, 1.0, 12, "global")
+
+    clock = {"t": 1_700_000_000_000}
+    store = FakeStore()
+    cache = BaselineCache(store, now_fn=lambda: clock["t"])
+    assert cache.get("cpu.loadavg.1") == (1.0, 1.0, 12, "global")
+    cache.get("cpu.loadavg.1")                 # ten sam czas → z cache
+    assert store.calls == 1
+    clock["t"] += int(config.BASELINE_REFRESH_S * 1000) + 1   # po oknie
+    cache.get("cpu.loadavg.1")
+    assert store.calls == 2
