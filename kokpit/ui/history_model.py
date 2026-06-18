@@ -14,6 +14,10 @@ class HistoryModel:
     def __init__(self, store) -> None:
         self._store = store
 
+    @property
+    def store(self):
+        return self._store
+
     def window(self, name: str, window_s: int, now_ms: int) -> HistoryResult:
         since_ms = now_ms - window_s * 1000
         if window_s <= RAW_WINDOW_MAX_S:

@@ -13,8 +13,10 @@ from kokpit.ui.widgets.gauge import Gauge
 from kokpit.ui.widgets.gpu_panel import GpuPanel, expected_gpu_indices
 from kokpit.ui.widgets.hero_column import HeroColumn
 from kokpit.ui.widgets.history_strip import HistoryStrip, window_mode
+from kokpit.ui.glyph_model import BaselineCache, GlyphModel
 from kokpit.ui.widgets.proc_table import ProcTable
 from kokpit.ui.widgets.sparkline import Sparkline
+from kokpit.ui.widgets.vital_glyph import VitalGlyph
 
 
 def _titled(icon_name: str, color: str, text: str, widget: QtWidgets.QWidget) -> QtWidgets.QWidget:
@@ -86,6 +88,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._disk = Sparkline("DISK r", window_s=120, color=(57, 255, 20), icon="disk-read")
         self._procs = ProcTable()
         self._gpu_extra = GpuPanel(gpu_indices[1:]) if len(gpu_indices) > 1 else None
+        self._glyph = VitalGlyph()
+        self._glyph_model = GlyphModel()
+        self._baseline = BaselineCache(model.store, now_fn=_now_ms)
 
         hist_series = ["cpu.loadavg.1", f"gpu.{gpu0}.util", "mem.used"]
         if self._net_key:
@@ -133,17 +138,19 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._gpu_extra is not None:
             io_lay.addWidget(self._gpu_extra)
 
-        # layout B: hero-kolumna z lewej (span), reszta po prawej
+        # layout B: hero-kolumna z lewej (span), reszta po prawej, glyph hero z prawej
         grid.addWidget(self._hero, 0, 0, 6, 1)
         grid.addWidget(self._core, 0, 1, 2, 2)
         grid.addWidget(io, 0, 3, 2, 1)
         grid.addWidget(self._hist, 2, 1, 2, 3)
         grid.addWidget(_titled("processes", NEON_CYAN, "PROCESSES", self._procs), 4, 1, 1, 3)
         grid.addWidget(ctrl_w, 5, 1, 1, 3)
-        grid.addWidget(self._status, 6, 0, 1, 4)
+        grid.addWidget(self._glyph, 0, 4, 6, 1)   # Vital-Signs Glyph: right-side hero column
+        grid.addWidget(self._status, 6, 0, 1, 5)
         grid.setColumnStretch(0, 0)
         for _c in (1, 2, 3):
             grid.setColumnStretch(_c, 1)
+        grid.setColumnStretch(4, 1)
 
         live.snapshot.connect(self._on_snapshot)   # AutoConnection → wątek GUI
         live.state.connect(self._on_state)
@@ -193,6 +200,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._gpu_extra.update_snapshot(snap)
         self._procs.set_rows(snap.get("procs", []))
         self._hist.on_snapshot(snap)
+        spokes = self._glyph_model.update(s, snap.get("ts", _now_ms()), self._baseline.get)
+        self._glyph.set_spokes(spokes, self._glyph_model.calibrating)
 
 
 def main() -> int:
@@ -211,7 +220,7 @@ def main() -> int:
         gpu_indices = [0]
     live = LiveClient(str(config.socket_path()))
     win = MainWindow(live, model, gpu_indices)
-    win.resize(1500, 950)
+    win.resize(1900, 950)
     win.show()
     live.start()
     try:
