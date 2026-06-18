@@ -14,6 +14,7 @@ ICONS_DIR = Path(__file__).parent / "icons"
 ICON_NAMES = [
     "cpu", "gpu", "ram", "swap", "net-rx", "net-tx",
     "disk-read", "disk-write", "thermal", "processes", "live",
+    "system", "motherboard",
 ]
 
 
