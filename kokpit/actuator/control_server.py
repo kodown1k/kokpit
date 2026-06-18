@@ -4,6 +4,7 @@ import socket
 import threading
 
 from kokpit.actuator import protocol as p
+from kokpit.actuator.intents import parse_intent
 
 log = logging.getLogger("kokpit.actuator.control")
 
@@ -86,5 +87,29 @@ def build_dispatch(actuator, proposer=None):
             return p.Response(ok=True, data={"count": actuator.revert_all()})
         if req.verb == "list":
             return p.Response(ok=True, data={"active": actuator.list_active()})
+        if req.verb == "intent":
+            plan = parse_intent(a.get("text", ""))
+            if plan is None:
+                return p.Response(ok=False, error="nie rozumiem polecenia")
+            if plan["verb"] == "revert_all":
+                return p.Response(ok=True, data={"count": actuator.revert_all()})
+            token = actuator.apply(plan["lever"], plan["target"], plan["params"], plan["ttl_s"])
+            return p.Response(ok=True, data={"token": token})
+        if req.verb == "propose":
+            if proposer is None:
+                return p.Response(ok=True, data={"proposals": []})
+            return p.Response(ok=True, data={"proposals":
+                              [{"id": pr.id, "text": pr.text} for pr in proposer.pending()]})
+        if req.verb == "confirm":
+            prop = proposer.take(a["id"]) if proposer else None
+            if prop is None:
+                return p.Response(ok=False, error="brak takiej propozycji")
+            ac = prop.action
+            token = actuator.apply(ac["lever"], ac["target"], ac["params"], ac["ttl_s"])
+            return p.Response(ok=True, data={"token": token})
+        if req.verb == "deny":
+            if proposer:
+                proposer.take(a["id"])
+            return p.Response(ok=True)
         return p.Response(ok=False, error=f"verb not handled: {req.verb}")
     return dispatch
