@@ -2,10 +2,38 @@ import math
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from kokpit.ui.glyph_model import SpokeScore
-from kokpit.ui.theme.palette import DIM_FG, round_pen, util_rgb
+from kokpit.ui.glyph_model import SpokeScore, clamp01
+from kokpit.ui.theme.palette import DIM_FG, round_pen
 
 GLOW_THRESHOLD = 0.5
+
+# Każdy parametr ma własny neonowy odcień (radar wielokolorowy zamiast 1 koloru peak).
+AXIS_RGB: dict[str, tuple[int, int, int]] = {
+    "CPU":      (61, 240, 255),    # cyan
+    "RAM":      (57, 255, 20),     # lime
+    "Swap":     (0, 210, 160),     # teal
+    "GPU":      (255, 60, 200),    # magenta
+    "VRAM":     (170, 90, 255),    # violet
+    "CPU temp": (255, 150, 0),     # orange
+    "GPU temp": (255, 60, 60),     # red
+    "Disk IO":  (255, 220, 40),    # yellow
+    "Net IO":   (70, 130, 255),    # blue
+}
+_DEFAULT_RGB = (150, 160, 180)
+
+
+def axis_rgb(name: str) -> tuple[int, int, int]:
+    return AXIS_RGB.get(name, _DEFAULT_RGB)
+
+
+def axis_qcolor(name: str, score: float) -> QtGui.QColor:
+    """Kolor osi z jaskrawością wg wartości: score 0 → przygaszony (blado),
+    score 1 → pełny neon. Skaluje zarówno RGB (brightness) jak i alpha."""
+    r, g, b = axis_rgb(name)
+    s = clamp01(score)
+    t = 0.18 + 0.82 * s                 # brightness 0.18..1.0
+    a = int(55 + 200 * s)               # alpha 55..255
+    return QtGui.QColor(int(r * t), int(g * t), int(b * t), a)
 
 EASE = 0.25
 TRAIL_ALPHA0 = 90
@@ -116,56 +144,45 @@ class VitalGlyph(QtWidgets.QWidget):
         p.setBrush(QtCore.Qt.NoBrush)
         p.drawPolygon(ref)
 
-        # trail ghosts: oldest first (normal iteration order)
+        # trail ghosts: neutralny, przygaszony ślad ruchu (kolory niesie teraz każda oś osobno)
         trail_n = len(self._current) if self._current else 0
         if trail_n == n and self._trail:
-            peak_score = max((s.score for s in self._spokes), default=0.0)
-            er, eg, eb = util_rgb(peak_score)
             for radii, alpha in self._trail:
                 ghost_poly = QtGui.QPolygonF(
                     [self._vertex(cx, cy, i, n, radii[i]) for i in range(n)]
                 )
-                ghost_color = QtGui.QColor(er, eg, eb, int(alpha))
-                ghost_pen = round_pen(ghost_color, 1.0)   # cienki, subtelny ślad
+                ghost_pen = round_pen(QtGui.QColor(120, 140, 160, int(alpha)), 1.0)
                 p.setPen(ghost_pen)
                 p.setBrush(QtCore.Qt.NoBrush)
                 p.drawPolygon(ghost_poly)
 
-        # current polygon: use _current for geometry, spokes for labels/glow logic
+        # geometria z _current (wygładzona), kolor/score z self._spokes
         cur = self._current if (self._current and len(self._current) == n) else [s.score for s in self._spokes]
-        poly = QtGui.QPolygonF(
-            [self._vertex(cx, cy, i, n, self.vertex_radius(cur[i])) for i in range(n)]
-        )
         peak = max((s.score for s in self._spokes), default=0.0)
-        r, g, b = util_rgb(peak)
-        fill = QtGui.QColor(r, g, b, 70 if not self._calibrating else 35)
-        edge = QtGui.QColor(r, g, b)
-        # fill pass (translucent)
-        p.setBrush(QtGui.QBrush(fill))
-        p.setPen(QtCore.Qt.NoPen)
-        p.drawPolygon(poly)
-        # bloom pass (szeroki, półprzezroczysty) → miękka poświata krawędzi
-        glow = QtGui.QColor(edge)
-        glow.setAlpha(70)
-        bloom_pen = round_pen(glow, 12.0)
-        bloom_pen.setJoinStyle(QtCore.Qt.RoundJoin)
-        p.setPen(bloom_pen)
+        peak_name = max(self._spokes, key=lambda s: s.score).name if self._spokes else ""
+        vtxs = [self._vertex(cx, cy, i, n, self.vertex_radius(cur[i])) for i in range(n)]
+
+        # struktura gwiazdy: cienki, przygaszony wielokąt łączący wierzchołki
+        p.setPen(round_pen(QtGui.QColor(90, 110, 130, 130), 1.0))
         p.setBrush(QtCore.Qt.NoBrush)
-        p.drawPolygon(poly)
-        # crisp pass (wąski, pełny alpha) → jasny rdzeń krawędzi
-        crisp_pen = round_pen(edge, 2.5)
-        crisp_pen.setJoinStyle(QtCore.Qt.RoundJoin)
-        p.setPen(crisp_pen)
-        p.drawPolygon(poly)
-        # glow per-ramię: drugi, grubszy/półprzezroczysty obrys wierzchołków > próg
+        p.drawPolygon(QtGui.QPolygonF(vtxs))
+
+        # promień per-oś: linia środek→wierzchołek + kropka, każda we własnym kolorze,
+        # jaskrawość wg score (0 blado → 100 pełny neon + bloom)
+        center = QtCore.QPointF(cx, cy)
         for i, s in enumerate(self._spokes):
-            if s.score >= GLOW_THRESHOLD:
-                gr, gg, gb = util_rgb(s.score)
-                vtx_glow = QtGui.QColor(gr, gg, gb, 90)
-                vtx_pen = round_pen(vtx_glow, 10.0)
-                p.setPen(vtx_pen)
-                v = self._vertex(cx, cy, i, n, self.vertex_radius(cur[i]))
-                p.drawEllipse(v, 5.0, 5.0)
+            col = axis_qcolor(s.name, s.score)
+            if s.score >= GLOW_THRESHOLD:          # bloom tylko dla rozjarzonych ramion
+                bloom = QtGui.QColor(col)
+                bloom.setAlpha(80)
+                p.setPen(round_pen(bloom, 9.0))
+                p.drawLine(center, vtxs[i])
+            p.setPen(round_pen(col, 2.5))
+            p.drawLine(center, vtxs[i])
+            dot = max(3.0, 3.0 + 3.0 * clamp01(s.score))
+            p.setBrush(QtGui.QBrush(col))
+            p.setPen(QtCore.Qt.NoPen)
+            p.drawEllipse(vtxs[i], dot, dot)
         # podpisy ramion: kod osi + wartość na stałym promieniu poza max ramieniem
         half = min(cx, cy)
         label_r = self._label_radius(half)
@@ -197,14 +214,12 @@ class VitalGlyph(QtWidgets.QWidget):
                 ry = ly
             else:
                 ry = ly + th * 0.4
-            if s.score >= GLOW_THRESHOLD:
-                lr, lg, lb = util_rgb(s.score)
-                p.setPen(QtGui.QPen(QtGui.QColor(lr, lg, lb)))
-            else:
-                p.setPen(QtGui.QPen(QtGui.QColor(DIM_FG)))
+            # etykieta w kolorze swojej osi; przy idle przygaszona do czytelnego minimum
+            lc = axis_qcolor(s.name, max(s.score, 0.45))
+            p.setPen(QtGui.QPen(lc))
             p.drawText(QtCore.QPointF(rx, ry), s.display)
-        # centrum: skalar zdrowia + stan kalibracji
-        p.setPen(QtGui.QPen(edge))
+        # centrum: skalar zdrowia (kolor najgorętszej osi) + stan kalibracji
+        p.setPen(QtGui.QPen(axis_qcolor(peak_name, max(peak, 0.6))))
         f = p.font()
         f.setPointSize(20)
         f.setBold(True)

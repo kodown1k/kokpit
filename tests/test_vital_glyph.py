@@ -240,3 +240,23 @@ def test_set_spokes_count_change_clears_trail(qapp):
     img.fill(0)
     w.render(img)   # nie crashuje mimo niedawnego 9-szprychowego trailu
     assert img.width() == 200
+
+
+def test_axis_rgb_distinct_per_parameter():
+    from kokpit.ui.widgets.vital_glyph import axis_rgb, AXIS_RGB
+    # każdy parametr ma własny, unikalny kolor bazowy
+    colors = [axis_rgb(n) for n in SPOKE_NAMES]
+    assert len(set(colors)) == len(SPOKE_NAMES)
+    assert axis_rgb("CPU") == AXIS_RGB["CPU"]
+    assert axis_rgb("nieznane") == axis_rgb("nieznane")   # fallback stabilny
+
+
+def test_axis_qcolor_brightness_scales_with_score(qapp):
+    from kokpit.ui.widgets.vital_glyph import axis_qcolor, axis_rgb
+    r, g, b = axis_rgb("CPU")
+    full = axis_qcolor("CPU", 1.0)
+    pale = axis_qcolor("CPU", 0.0)
+    assert (full.red(), full.green(), full.blue()) == (r, g, b)   # 100 → pełny neon
+    assert full.alpha() == 255
+    assert pale.red() < r and pale.green() < g                     # 0 → przygaszone (blado)
+    assert pale.alpha() < full.alpha()

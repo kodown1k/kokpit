@@ -9,7 +9,6 @@ from kokpit.ui.live_client import LiveClient
 from kokpit.ui.theme.icons import neon_pixmap
 from kokpit.ui.theme.palette import NEON_CYAN, NEON_LIME, NEON_MAGENTA, apply_glow, qss_path
 from kokpit.ui.widgets.core_ring_grid import CoreRingGrid
-from kokpit.ui.widgets.gauge import Gauge
 from kokpit.ui.widgets.gpu_panel import GpuPanel, expected_gpu_indices
 from kokpit.ui.widgets.hero_column import HeroColumn
 from kokpit.ui.widgets.history_strip import HistoryStrip, window_mode
@@ -17,6 +16,7 @@ from kokpit.ui.glyph_model import BaselineCache, GlyphModel
 from kokpit.ui.widgets.gpu_proc_table import GpuProcTable
 from kokpit.ui.widgets.proc_table import ProcTable
 from kokpit.ui.widgets.sparkline import Sparkline
+from kokpit.ui.widgets.sysinfo import SysInfo
 from kokpit.ui.widgets.vital_glyph import VitalGlyph
 
 
@@ -84,7 +84,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._hero = HeroColumn(gpu0)
         self._core = CoreRingGrid()
-        self._swap = Gauge("SWAP", " MB", high=4096, crit=8192, accent=NEON_CYAN)
+        self._sysinfo = SysInfo()
         self._net = Sparkline("NET rx (KB/s)", window_s=120, color=(61, 240, 255),
                               icon="net-rx", scale=1.0 / 1024)
         self._disk = Sparkline("DISK r", window_s=120, color=(57, 255, 20), icon="disk-read")
@@ -142,7 +142,7 @@ class MainWindow(QtWidgets.QMainWindow):
         left_lay.setContentsMargins(0, 0, 0, 0)
         left_lay.setSpacing(4)
         left_lay.addWidget(self._core)
-        left_lay.addWidget(self._swap)
+        left_lay.addWidget(self._sysinfo)
         if self._gpu_extra is not None:
             left_lay.addWidget(self._gpu_extra)
         left_lay.addStretch(1)
@@ -223,8 +223,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._hero.update_snapshot(snap)
         self._core.set_util(s)
         self._core.set_temp(s)
-        sw = s.get("swap.used")
-        self._swap.set_value(None if sw is None else sw / (1024 * 1024))
+        self._sysinfo.refresh()
         self._net.push(s.get(self._net_key) if self._net_key else None)
         self._disk.push(s.get(self._disk_key) if self._disk_key else None)
         if self._gpu_extra is not None:
