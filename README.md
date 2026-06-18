@@ -56,26 +56,23 @@ Skrypt instaluje binarny helper i plik polityki polkit (`co.kodownik.kokpit.actl
 
 ### Włączenie ochrony koperty (envelope protection)
 
-Opcjonalna ochrona przed przekroczeniem budżetu zasobów. Ustaw zmienną środowiskową przed startem demona lub w pliku `.env`:
+Opcjonalna ochrona: gdy oś telemetrii odchyli się znacząco powyżej swojego circadian baseline (z-score ≥ `ENVELOPE_Z_TRIGGER`, utrzymane przez `ENVELOPE_DEBOUNCE_S`), actuator sam nakłada odwracalne ograniczenie (np. cap mocy GPU, governor powersave).
 
-```bash
-ENVELOPE_ENABLED=1 kokpit-collectord
-```
-
-Po włączeniu proposer automatycznie ogranicza akcje do bezpiecznego zakresu.
+`ENVELOPE_ENABLED` to **stała w `kokpit/config.py`** (domyślnie `False`), nie zmienna środowiskowa — żeby włączyć, ustaw `ENVELOPE_ENABLED = True` w configu i zrestartuj demona. Proposer (`PROPOSE_ENABLED`, domyślnie `True`) działa niezależnie: zamiast działać sam, wystawia propozycje, które zatwierdzasz w UI.
 
 ### Pasek poleceń (command bar)
 
-W dashboardzie (pole tekstowe u dołu) obsługiwane frazy:
+W dashboardzie (pole tekstowe u dołu) obsługiwane frazy (PL/EN, dopasowanie po granicy słowa):
 
 | Fraza | Efekt |
 |---|---|
-| `cicho na 30 min` | renice+ionice wszystkich procesów nieinteraktywnych, TTL 30 min |
-| `zwolnij wszystko` | aggressive throttle CPU governor + GPU power limit, TTL domyślny |
-| `max` | usuwa wszystkie aktywne ograniczenia (natychmiastowe cofnięcie) |
+| `cicho [na N min]` / `quiet` | governor → `powersave`, TTL = N min (domyślnie 30 min) |
+| `max` / `performance` | governor → `performance`, TTL domyślny |
+| `cap gpu N` / `limit gpu N` | limit mocy GPU = N W, TTL domyślny |
+| `zwolnij wszystko` / `release all` / `odblokuj` | cofa **wszystkie** aktywne ograniczenia natychmiast (`revert_all`) |
 
-Proposer jest deterministyczny — ta sama fraza zawsze produkuje ten sam zestaw akcji.
+Parser intencji jest deterministyczny — ta sama fraza zawsze produkuje ten sam plan akcji.
 
-### Gest drag-to-cap (glify)
+### Gest drag-to-cap (glif)
 
-Na dashboardzie: przeciągnij glyf zasobu (CPU/GPU/RAM) w lewo lub w prawo, żeby ustawić cap procentowy. Zwolnij, żeby zatwierdzić. Akcja jest odwracalna (TTL jak pozostałe).
+Na radarze Vital-Signs: chwyć ramię osi (np. GPU, CPU) i przeciągnij je **promieniście do środka** — im bliżej środka, tym mocniejszy cap (ramię GPU → limit mocy GPU; ramię CPU → governor). Zwolnij, żeby zatwierdzić. Akcja jest odwracalna (TTL jak pozostałe) i audytowana.
