@@ -179,23 +179,3 @@ def test_set_window_reengages_follow_but_refresh_does_not(qapp):
     win._cur_window_s = 21600                        # poll window
     win._refresh_history()
     assert win._hist._follow is False
-
-
-def test_mainwindow_feeds_thread_star(qapp):
-    from kokpit.ui.app import MainWindow
-    from kokpit.ui.history_model import HistoryModel
-    from kokpit.ui.live_client import LiveClient
-
-    class FakeStore:
-        def query(self, n, a, b): return [(a, 1.0), (b, 2.0)]
-        def query_rollup(self, n, a, b): return [(a, 0.0, 9.0, 4.5, 5.0)]
-        def list_series(self, prefix=None): return []
-
-    win = MainWindow(LiveClient("/nonexistent.sock"), HistoryModel(FakeStore()), gpu_indices=[0])
-    win._on_snapshot({
-        "ts": 1000,
-        "series": {f"cpu.thread.{i}.util": 40 for i in range(16)},
-        "procs": [],
-    })
-    assert len(win._thread_star._target) == 16
-    assert all(abs(t - 0.4) < 1e-9 for t in win._thread_star._target)

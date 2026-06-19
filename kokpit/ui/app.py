@@ -24,7 +24,6 @@ from kokpit.ui.widgets.proposal_bar import ProposalBar
 from kokpit.ui.widgets.sparkline import Sparkline
 from kokpit.ui.widgets.sysinfo import SysInfo
 from kokpit.ui.widgets.vital_glyph import VitalGlyph
-from kokpit.ui.widgets.thread_star import ThreadStar
 
 
 def _titled(icon_name: str, color: str, text: str, widget: QtWidgets.QWidget) -> QtWidgets.QWidget:
@@ -99,7 +98,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._hero = HeroColumn(gpu0)
         self._core = CoreRingGrid()
-        self._thread_star = ThreadStar()
         self._sysinfo = SysInfo()
         self._net = Sparkline("NET rx (KB/s)", window_s=120, color=(61, 240, 255),
                               icon="net-rx", scale=1.0 / 1024)
@@ -168,7 +166,6 @@ class MainWindow(QtWidgets.QMainWindow):
         zv.setContentsMargins(0, 0, 0, 0)
         zv.setSpacing(6)
         zv.addWidget(_titled("cpu", NEON_CYAN, "CORES", self._core))
-        zv.addWidget(_titled("cpu", NEON_CYAN, "THREADS", self._thread_star))
         if self._gpu_extra is not None:
             zv.addWidget(self._gpu_extra)
         zv.addWidget(self._sysinfo, 1)
@@ -290,7 +287,6 @@ class MainWindow(QtWidgets.QMainWindow):
             board = max(nvme) if nvme else None
         self._temps.set_inner(board)
         self._core.set_util(s)
-        self._thread_star.set_threads(s)
         self._core.set_temp(s)
         self._sysinfo.refresh()
         self._disk_usage.refresh()
