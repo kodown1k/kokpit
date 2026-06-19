@@ -6,6 +6,17 @@ def thread_util_keys(n: int = 32) -> list[str]:
     return [f"cpu.thread.{i}.util" for i in range(n)]
 
 
+def thread_count(series) -> int:
+    """Liczba wątków CPU z kluczy cpu.thread.<i>.util: max(i)+1 (latch nad dziurami), albo 0."""
+    idxs = []
+    for k in series:
+        if k.startswith("cpu.thread.") and k.endswith(".util"):
+            mid = k[len("cpu.thread."):-len(".util")]
+            if mid.isdigit():
+                idxs.append(int(mid))
+    return max(idxs) + 1 if idxs else 0
+
+
 def sorted_thermal_keys(names) -> list[str]:
     # klucze coretemp: thermal.coretemp.<cid>.core.<n> (cid = chip hwmon —
     # wielo-socket safe; n = nieciągły numer rdzenia). Sortuj po (cid, n).
