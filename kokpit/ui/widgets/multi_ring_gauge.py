@@ -1,6 +1,6 @@
 """Hero gauge z N koncentrycznymi łukami (zewn.→wewn.) do powiązanych temperatur
-(np. dyski NVMe albo pakiet CPU + płyta). Generalizacja dawnego DualRingGauge:
-grubość ringów adaptuje się do N, środek zawsze zostaje na N linii wartości."""
+(np. dyski NVMe albo pakiet CPU + płyta): grubość ringów adaptuje się do N,
+środek zawsze zostaje na N linii wartości."""
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from kokpit.ui.theme.palette import DIM_FG, round_pen, value_color

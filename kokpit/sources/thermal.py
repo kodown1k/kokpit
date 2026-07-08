@@ -64,7 +64,9 @@ class ThermalSource:
             elif name.startswith("pch"):            # chipset (PCH) — sensor płyty głównej
                 pch = _read_temp(chip / "temp1_input")
             elif name.startswith("nct"):            # Super I/O (Nuvoton) — dedykowany SYSTIN
-                systin = self._read_systin(chip)
+                t = self._read_systin(chip)
+                if systin is None and t is not None:   # pierwszy poprawny odczyt wygrywa
+                    systin = t
             elif name == "acpitz":                  # ambient ACPI thermal zone (fallback MB)
                 acpitz = _read_temp(chip / "temp1_input")
         # chipset > dedykowany sensor płyty (SYSTIN) > rozmyta strefa ACPI

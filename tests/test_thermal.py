@@ -122,3 +122,10 @@ def test_thermal_nct_without_systin_no_board(tmp_path):
     _mkchip(tmp_path, 0, "nct6798", {"temp3": ("AUXTIN0", 111500)})
     out = ThermalSource(root=tmp_path).sample(now_ms=0, dt_s=1.0)
     assert "thermal.board" not in out
+
+
+def test_thermal_second_nct_without_systin_does_not_clobber(tmp_path):
+    _mkchip(tmp_path, 1, "nct6798", {"temp1": ("SYSTIN", 40000)})
+    _mkchip(tmp_path, 2, "nct6791", {"temp3": ("AUXTIN0", 111500)})   # bez SYSTIN — nie może skasować odczytu
+    out = ThermalSource(root=tmp_path).sample(now_ms=0, dt_s=1.0)
+    assert out["thermal.board"] == 40.0

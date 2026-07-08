@@ -81,7 +81,8 @@ def nvme_temp_keys(names: list[str]) -> list[str]:
 
 def cpu_mb_rings(names: list[str]) -> list[tuple[str, str]]:
     """[(label, klucz)] kafla CPU/MB: pakiety CPU (zewn.) + płyta (wewn.), jeśli są."""
-    pkgs = sorted(n for n in names if n.startswith("thermal.coretemp.") and n.endswith(".pkg"))
+    pkgs = sorted((n for n in names if n.startswith("thermal.coretemp.") and n.endswith(".pkg")),
+                  key=lambda n: int(n.split(".")[2]))
     rings = [("CPU" if len(pkgs) == 1 else f"CPU{i}", k) for i, k in enumerate(pkgs)]
     if "thermal.board" in names:
         rings.append(("MB", "thermal.board"))
