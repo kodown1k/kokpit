@@ -73,6 +73,21 @@ def primary_net_key(names: list[str]) -> str | None:
     return next((n for n in rx if n.startswith(_WIRED_NET_PREFIXES)), rx[0])
 
 
+def nvme_temp_keys(names: list[str]) -> list[str]:
+    """Serie thermal.nvme.<i> posortowane numerycznie po indeksie dysku."""
+    ks = [n for n in names if n.startswith("thermal.nvme.")]
+    return sorted(ks, key=lambda k: int(k.rsplit(".", 1)[1]))
+
+
+def cpu_mb_rings(names: list[str]) -> list[tuple[str, str]]:
+    """[(label, klucz)] kafla CPU/MB: pakiety CPU (zewn.) + płyta (wewn.), jeśli są."""
+    pkgs = sorted(n for n in names if n.startswith("thermal.coretemp.") and n.endswith(".pkg"))
+    rings = [("CPU" if len(pkgs) == 1 else f"CPU{i}", k) for i, k in enumerate(pkgs)]
+    if "thermal.board" in names:
+        rings.append(("MB", "thermal.board"))
+    return rings
+
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, live: LiveClient, model: HistoryModel, gpu_indices: list[int]) -> None:
         super().__init__()
@@ -95,6 +110,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self._temps = MultiRingGauge(
             "TEMPS", [("PCI", NEON_MAGENTA), ("MB" if self._has_board else "SSD", NEON_LIME)],
             high=75, crit=90)
+
+        thermal_names = sorted(thermal_series)
+        self._nvme_keys = nvme_temp_keys(thermal_names)
+        self._nvme = None
+        if self._nvme_keys:
+            _acc = [NEON_CYAN, NEON_MAGENTA, NEON_LIME]
+            self._nvme = MultiRingGauge(
+                "NVME TEMPS",
+                [(f"N{i}", _acc[i % len(_acc)]) for i in range(len(self._nvme_keys))],
+                high=70, crit=80)
+        self._cpu_mb_rings = cpu_mb_rings(thermal_names)
+        self._cpu_mb = None
+        if self._cpu_mb_rings:
+            self._cpu_mb = MultiRingGauge(
+                "CPU/MB TEMPS",
+                [(lb, NEON_LIME if key == "thermal.board" else NEON_MAGENTA)
+                 for lb, key in self._cpu_mb_rings],
+                high=80, crit=90)
 
         self._hero = HeroColumn(gpu0)
         self._core = CoreRingGrid()
@@ -199,6 +232,10 @@ class MainWindow(QtWidgets.QMainWindow):
         top_lay.setSpacing(8)
         top_lay.addWidget(self._hero, 4)
         top_lay.addWidget(self._temps, 1)
+        if self._nvme is not None:
+            top_lay.addWidget(self._nvme, 1)
+        if self._cpu_mb is not None:
+            top_lay.addWidget(self._cpu_mb, 1)
         grid.addWidget(top, 0, 0, 1, 3)
         grid.addWidget(zone_vitals, 1, 0)
         grid.addWidget(zone_glyph, 1, 1)
@@ -285,6 +322,10 @@ class MainWindow(QtWidgets.QMainWindow):
             nvme = [v for k, v in s.items() if k.startswith("thermal.nvme.") and v is not None]
             board = max(nvme) if nvme else None
         self._temps.set_values([s.get("thermal.wifi"), board])
+        if self._nvme is not None:
+            self._nvme.set_values([s.get(k) for k in self._nvme_keys])
+        if self._cpu_mb is not None:
+            self._cpu_mb.set_values([s.get(k) for _, k in self._cpu_mb_rings])
         self._core.set_util(s)
         self._core.set_temp(s)
         self._sysinfo.refresh()
