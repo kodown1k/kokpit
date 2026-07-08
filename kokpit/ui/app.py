@@ -19,7 +19,7 @@ from kokpit.ui.glyph_model import BaselineCache, GlyphModel
 from kokpit.ui.widgets.gpu_proc_table import GpuProcTable
 from kokpit.ui.widgets.proc_table import ProcTable
 from kokpit.ui.widgets.disk_usage import DiskUsage
-from kokpit.ui.widgets.dual_ring_gauge import DualRingGauge
+from kokpit.ui.widgets.multi_ring_gauge import MultiRingGauge
 from kokpit.ui.widgets.proposal_bar import ProposalBar
 from kokpit.ui.widgets.sparkline import Sparkline
 from kokpit.ui.widgets.sysinfo import SysInfo
@@ -92,9 +92,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # dysk NVMe, gdy host nie wystawia sensora płyty (np. brak acpitz/pch).
         thermal_series = set(model.available_series("thermal."))
         self._has_board = "thermal.board" in thermal_series
-        self._temps = DualRingGauge(
-            "TEMPS", "PCI", "MB" if self._has_board else "SSD",
-            NEON_MAGENTA, NEON_LIME, high=75, crit=90)
+        self._temps = MultiRingGauge(
+            "TEMPS", [("PCI", NEON_MAGENTA), ("MB" if self._has_board else "SSD", NEON_LIME)],
+            high=75, crit=90)
 
         self._hero = HeroColumn(gpu0)
         self._core = CoreRingGrid()
@@ -280,12 +280,11 @@ class MainWindow(QtWidgets.QMainWindow):
         s = snap.get("series", {})
         self._hero.update_snapshot(snap)
         # PCI adapter (wifi) na zewn. ringu; płyta (board) lub najgorętszy NVMe na wewn.
-        self._temps.set_outer(s.get("thermal.wifi"))
         board = s.get("thermal.board")
         if board is None:
             nvme = [v for k, v in s.items() if k.startswith("thermal.nvme.") and v is not None]
             board = max(nvme) if nvme else None
-        self._temps.set_inner(board)
+        self._temps.set_values([s.get("thermal.wifi"), board])
         self._core.set_util(s)
         self._core.set_temp(s)
         self._sysinfo.refresh()
