@@ -96,3 +96,29 @@ def test_thermal_no_board_sensor_absent(tmp_path):
     _mkchip(tmp_path, 0, "nvme", {"temp1": ("Composite", 50000)})
     out = ThermalSource(root=tmp_path).sample(now_ms=0, dt_s=1.0)
     assert "thermal.board" not in out
+
+
+def test_thermal_board_from_nct_systin(tmp_path):
+    _mkchip(tmp_path, 4, "nct6798", {
+        "temp1": ("SYSTIN", 40000),
+        "temp3": ("AUXTIN0", 111500),   # niepodłączony pin — śmieciowe ~112°C, musi być zignorowany
+        "temp10": ("PCH_CHIP_TEMP", 0),
+    })
+    out = ThermalSource(root=tmp_path).sample(now_ms=0, dt_s=1.0)
+    assert out["thermal.board"] == 40.0
+
+
+def test_thermal_board_priority_pch_systin_acpitz(tmp_path):
+    _mkchip(tmp_path, 0, "acpitz", {"temp1": ("", 45000)})
+    _mkchip(tmp_path, 1, "nct6798", {"temp1": ("SYSTIN", 40000)})
+    out = ThermalSource(root=tmp_path).sample(now_ms=0, dt_s=1.0)
+    assert out["thermal.board"] == 40.0       # SYSTIN > acpitz
+    _mkchip(tmp_path, 2, "pch_cannonlake", {"temp1": ("", 61000)})
+    out = ThermalSource(root=tmp_path).sample(now_ms=0, dt_s=1.0)
+    assert out["thermal.board"] == 61.0       # pch > SYSTIN
+
+
+def test_thermal_nct_without_systin_no_board(tmp_path):
+    _mkchip(tmp_path, 0, "nct6798", {"temp3": ("AUXTIN0", 111500)})
+    out = ThermalSource(root=tmp_path).sample(now_ms=0, dt_s=1.0)
+    assert "thermal.board" not in out
