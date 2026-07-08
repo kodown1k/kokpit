@@ -33,7 +33,8 @@ def _hwmon_num(p: Path) -> int:
 class ThermalSource:
     """Temperatury czytane wprost z sysfs (hwmon) — bez fork/exec `sensors` co tick.
 
-    Klucze: `thermal.pkg`, `thermal.core.<n>`, `thermal.nvme.<idx>`, `thermal.wifi`, `thermal.board` (pch > SYSTIN > acpitz).
+    Klucze: `thermal.coretemp.<cid>.pkg`, `thermal.coretemp.<cid>.core.<n>`,
+    `thermal.nvme.<idx>`, `thermal.wifi`, `thermal.board` (pch > SYSTIN > acpitz).
     `root` wstrzykiwalny dla testów (domyślnie /sys/class/hwmon).
     """
 
