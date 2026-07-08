@@ -33,7 +33,8 @@ def _hwmon_num(p: Path) -> int:
 class ThermalSource:
     """Temperatury czytane wprost z sysfs (hwmon) — bez fork/exec `sensors` co tick.
 
-    Klucze: `thermal.pkg`, `thermal.core.<n>`, `thermal.nvme.<idx>`, `thermal.wifi`.
+    Klucze: `thermal.coretemp.<cid>.pkg`, `thermal.coretemp.<cid>.core.<n>`,
+    `thermal.nvme.<idx>`, `thermal.wifi`, `thermal.board` (pch > SYSTIN > acpitz).
     `root` wstrzykiwalny dla testów (domyślnie /sys/class/hwmon).
     """
 
@@ -49,7 +50,7 @@ class ThermalSource:
         except OSError:
             return out
         nvme_idx = 0
-        acpitz = pch = None
+        acpitz = pch = systin = None
         for chip in chips:
             name = _read_text(chip / "name")
             if name is None:
@@ -63,9 +64,14 @@ class ThermalSource:
                 self._read_wifi(chip, out)
             elif name.startswith("pch"):            # chipset (PCH) — sensor płyty głównej
                 pch = _read_temp(chip / "temp1_input")
+            elif name.startswith("nct"):            # Super I/O (Nuvoton) — dedykowany SYSTIN
+                t = self._read_systin(chip)
+                if systin is None and t is not None:   # pierwszy poprawny odczyt wygrywa
+                    systin = t
             elif name == "acpitz":                  # ambient ACPI thermal zone (fallback MB)
                 acpitz = _read_temp(chip / "temp1_input")
-        board = pch if pch is not None else acpitz  # chipset > ambient
+        # chipset > dedykowany sensor płyty (SYSTIN) > rozmyta strefa ACPI
+        board = next((t for t in (pch, systin, acpitz) if t is not None), None)
         if board is not None:
             out["thermal.board"] = board
         return out
@@ -96,6 +102,14 @@ class ThermalSource:
                     return True
                 return False
         return False
+
+    @staticmethod
+    def _read_systin(chip: Path) -> float | None:
+        """Tylko wejście z labelem SYSTIN — niepodłączone AUXTIN raportują ~112°C."""
+        for inp in sorted(chip.glob("temp*_input")):
+            if (_read_text(_label_path(inp)) or "") == "SYSTIN":
+                return _read_temp(inp)
+        return None
 
     @staticmethod
     def _read_wifi(chip: Path, out: Sample) -> None:
