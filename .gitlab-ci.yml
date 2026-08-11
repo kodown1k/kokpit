@@ -1,0 +1,15 @@
+# Publiczny mirror GitHub (kodown1k/kokpit): push main po każdym merge.
+# Auth: deploy key z prawem zapisu TYLKO do tego repo (protected file-variable
+# GITHUB_MIRROR_SSH_KEY, widoczna wyłącznie na chronionym main).
+mirror-github:
+  image: alpine:3.20
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  variables:
+    GIT_DEPTH: "0"   # pełna historia — shallow clone nie wypchnie mirrora
+  before_script:
+    - apk add --no-cache git openssh-client
+    - mkdir -p ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+    - chmod 400 "$GITHUB_MIRROR_SSH_KEY"
+  script:
+    - GIT_SSH_COMMAND="ssh -i $GITHUB_MIRROR_SSH_KEY" git push git@github.com:kodown1k/kokpit.git HEAD:main
