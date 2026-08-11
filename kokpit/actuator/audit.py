@@ -21,6 +21,10 @@ class AuditLog:
         out = []
         for line in lines[-n:]:
             line = line.strip()
-            if line:
+            if not line:
+                continue
+            try:
                 out.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
         return out
