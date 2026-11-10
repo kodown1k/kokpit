@@ -40,3 +40,11 @@ def test_pkg_temp_picks_hottest_socket():
                      "thermal.coretemp.5.pkg": 71.0,
                      "thermal.coretemp.3.core.0": 90.0}) == 71.0
     assert pkg_temp({"cpu.thread.0.util": 10.0}) is None   # brak pkg → None
+
+
+def test_thread_count_from_series():
+    from kokpit.ui.widgets.heatmap import thread_count
+    assert thread_count({f"cpu.thread.{i}.util": 1 for i in range(16)}) == 16
+    assert thread_count({"cpu.thread.0.util": 1, "cpu.thread.5.util": 1}) == 6  # max+1 (latch over gaps)
+    assert thread_count({}) == 0
+    assert thread_count({"mem.used": 1, "cpu.thread.x.util": 1}) == 0           # non-digit / non-thread ignored

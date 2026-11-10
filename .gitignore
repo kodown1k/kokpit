@@ -7,3 +7,6 @@ __pycache__/
 *.db-shm
 .superpowers/
 *.egg-info/
+
+# git worktrees (isolated feature workspaces)
+.worktrees/

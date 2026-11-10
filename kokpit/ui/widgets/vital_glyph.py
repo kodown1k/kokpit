@@ -64,6 +64,7 @@ class VitalGlyph(QtWidgets.QWidget):
         self._timer.setInterval(TRAIL_INTERVAL_MS)
         self._timer.timeout.connect(self._advance)
         self._drag_idx: int | None = None
+        self._drag_frac: float | None = None   # live cap fraction under the cursor while dragging
 
     def vertex_radius(self, score: float) -> float:
         return self.R_BASE + self.R_SPAN * max(0.0, min(1.0, score))
@@ -156,26 +157,44 @@ class VitalGlyph(QtWidgets.QWidget):
         # accept only if within half a sector
         return best if best_d <= math.pi / n else None
 
-    def _emit_cap(self, pos) -> None:
-        if self._drag_idx is None:
-            return
+    def _frac_at(self, pos) -> float:
+        """Promień kursora → frakcja capa 0..1 (baza=0, rant=1), w skali rendera."""
         cx, cy = self.width() / 2.0, self.height() / 2.0
-        half = min(cx, cy)
-        sc = self._scale(half)
+        sc = self._scale(min(cx, cy))
         r = math.hypot(pos.x() - cx, pos.y() - cy)
         r_base = self.R_BASE * sc
         r_full = (self.R_BASE + self.R_SPAN) * sc
-        frac = clamp01((r - r_base) / max(1e-6, (r_full - r_base)))
+        return clamp01((r - r_base) / max(1e-6, (r_full - r_base)))
+
+    def _update_drag(self, pos) -> None:
+        """Żywy feedback: dopóki ramię jest chwycone, aktualizuj frakcję i przemaluj."""
+        if self._drag_idx is None:
+            return
+        self._drag_frac = self._frac_at(pos)
+        self.update()
+
+    def _emit_cap(self, pos) -> None:
+        if self._drag_idx is None:
+            return
+        frac = self._frac_at(pos)
         name = self._spokes[self._drag_idx].name
         self._drag_idx = None
         self.capRequested.emit(name, frac)
 
     def mousePressEvent(self, event):
         self._drag_idx = self.arm_at(event.position())
+        self._update_drag(event.position())   # natychmiastowy feedback już przy chwycie
+        if self._drag_idx is not None:
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        self._update_drag(event.position())   # ramię śledzi kursor podczas przeciągania
 
     def mouseReleaseEvent(self, event):
         if self._drag_idx is not None:
             self._emit_cap(event.position())
+        self._drag_frac = None
+        self.update()
 
     def paintEvent(self, _event) -> None:
         p = QtGui.QPainter(self)
@@ -245,6 +264,24 @@ class VitalGlyph(QtWidgets.QWidget):
             p.setBrush(QtGui.QBrush(col))
             p.setPen(QtCore.Qt.NoPen)
             p.drawEllipse(vtxs[i], dot, dot)
+
+        # drag overlay: przeciągane ramię śledzi kursor (żywy feedback) — jaskrawa
+        # linia + pierścień na promieniu kursora + procent, na osi self._drag_idx.
+        if (self._drag_idx is not None and self._drag_frac is not None
+                and 0 <= self._drag_idx < n):
+            di = self._drag_idx
+            r_drag = r_base + (r_full - r_base) * clamp01(self._drag_frac)
+            tip = vtx(di, r_drag)
+            dcol = axis_qcolor(self._spokes[di].name, 1.0)
+            glow = QtGui.QColor(dcol); glow.setAlpha(70)
+            p.setPen(round_pen(glow, 11.0)); p.drawLine(center, tip)
+            p.setPen(round_pen(dcol, 3.0)); p.drawLine(center, tip)
+            p.setBrush(QtCore.Qt.NoBrush)
+            p.setPen(round_pen(dcol, 2.0)); p.drawEllipse(tip, 7.0, 7.0)
+            df = p.font(); df.setPointSize(9); df.setBold(True); p.setFont(df)
+            p.setPen(QtGui.QPen(dcol))
+            p.drawText(QtCore.QPointF(tip.x() + 9, tip.y() - 9),
+                       f"{round(self._drag_frac * 100)}%")
         # podpisy ramion: kod osi + wartość na promieniu poza max (przeskalowanym) ramieniem
         label_r = self._label_radius(half)
         lf = p.font()
